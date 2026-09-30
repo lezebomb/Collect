@@ -1,3 +1,4 @@
+import 'package:flutter/foundation.dart';
 import 'package:image_picker/image_picker.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
 
@@ -50,16 +51,29 @@ class PreferencesRepository {
         itemId: 'wallpaper',
       );
     }
+    late final UserPreferences next;
     try {
-      final next = await save(
+      next = await save(
         current.copyWith(wallpaperUrl: uploaded, clearWallpaper: file == null),
       );
-      if (old != null && old != next.wallpaperUrl) await images.remove(old);
-      return next;
     } catch (_) {
-      if (uploaded != null) await images.remove(uploaded);
+      if (uploaded != null) {
+        try {
+          await images.remove(uploaded);
+        } catch (error) {
+          debugPrint('Could not remove unused wallpaper: $error');
+        }
+      }
       rethrow;
     }
+    if (old != null && old != next.wallpaperUrl) {
+      try {
+        await images.remove(old);
+      } catch (error) {
+        debugPrint('Could not remove previous wallpaper: $error');
+      }
+    }
+    return next;
   }
 
   Future<List<String>> categories({
