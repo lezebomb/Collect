@@ -7,7 +7,6 @@ void main() {
     String id,
     String category,
     double cny, {
-    String status = 'owned',
     String? playStatus,
     DateTime? purchaseDate,
   }) => CollectionItem(
@@ -15,7 +14,6 @@ void main() {
     userId: 'user',
     name: id,
     category: category,
-    status: status,
     createdAt: DateTime.utc(2026, 9, 30),
     price: cny,
     priceCny: cny,
@@ -33,15 +31,15 @@ void main() {
         purchaseDate: DateTime(2026, 8, 1),
       ),
       item('b', '周边', 50, purchaseDate: DateTime(2026, 9, 1)),
-      item('c', '游戏', 30, status: 'sold', playStatus: '已通关'),
-      item('d', '游戏', 999, status: 'wanted'),
+      item('c', '游戏', 30, playStatus: '已通关'),
+      item('d', '游戏', 999),
     ]);
-    expect(stats.totalInvestment, 180);
-    expect(stats.inHand.length, 2);
-    expect(stats.inHandValue, 150);
-    expect(stats.categoryCounts, {'游戏': 2, '周边': 1});
-    expect(stats.categorySpending, {'游戏': 130, '周边': 50});
-    expect(stats.gameStatuses, {'游玩中': 1, '已通关': 1});
+    expect(stats.totalInvestment, 1179);
+    expect(stats.inHand.length, 4);
+    expect(stats.inHandValue, 1179);
+    expect(stats.categoryCounts, {'游戏': 3, '周边': 1});
+    expect(stats.categorySpending, {'游戏': 1129, '周边': 50});
+    expect(stats.gameStatuses, {'游玩中': 1, '已通关': 1, '未设置': 1});
     expect(stats.monthlySpending['2026-08'], 100);
   });
 
@@ -51,7 +49,6 @@ void main() {
       'user_id': 'user',
       'name': '旧收藏',
       'category': '书籍',
-      'status': 'owned',
       'price': 42,
       'created_at': '2026-09-30T00:00:00Z',
     });

@@ -135,12 +135,6 @@ class _ItemDetailScreenState extends State<ItemDetailScreen> {
                             fontWeight: FontWeight.w800,
                           ),
                     ),
-                    const SizedBox(height: 16),
-                    Wrap(
-                      spacing: 8,
-                      runSpacing: 8,
-                      children: [Chip(label: Text(_item.statusLabel))],
-                    ),
                     if (_item.isGame) ...[
                       const SizedBox(height: 20),
                       if (_item.gamePlatform != null)

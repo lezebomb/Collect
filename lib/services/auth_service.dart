@@ -3,6 +3,8 @@ import 'package:supabase_flutter/supabase_flutter.dart';
 class AuthService {
   AuthService(this.client);
 
+  static const recoveryRedirect = 'collect://auth/recovery';
+
   final SupabaseClient client;
 
   User? get currentUser => client.auth.currentUser;
@@ -20,4 +22,10 @@ class AuthService {
   }
 
   Future<void> signOut() => client.auth.signOut();
+
+  Future<void> requestPasswordReset(String email) => client.auth
+      .resetPasswordForEmail(email.trim(), redirectTo: recoveryRedirect);
+
+  Future<void> updatePassword(String password) =>
+      client.auth.updateUser(UserAttributes(password: password)).then((_) {});
 }

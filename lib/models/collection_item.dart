@@ -6,7 +6,6 @@ class CollectionItem {
     required this.userId,
     required this.name,
     required this.category,
-    required this.status,
     required this.createdAt,
     this.coverImage,
     this.description = '',
@@ -28,7 +27,6 @@ class CollectionItem {
   final String description;
   final DateTime? purchaseDate;
   final double? price;
-  final String status;
   final String currency;
   final double? priceCny;
   final String? gamePlatform;
@@ -37,7 +35,6 @@ class CollectionItem {
   final String? gamePlayStatus;
   final DateTime createdAt;
 
-  String get statusLabel => itemStatusLabels[status] ?? status;
   bool get isGame => category == '游戏';
   int get ownedDays {
     final start = purchaseDate ?? createdAt;
@@ -68,7 +65,6 @@ class CollectionItem {
     gameContentType: json['game_content_type'] as String?,
     gameEdition: json['game_edition'] as String?,
     gamePlayStatus: json['game_play_status'] as String?,
-    status: json['status'] as String,
     createdAt: DateTime.parse(json['created_at'] as String),
   );
 
@@ -92,7 +88,6 @@ class CollectionItem {
     'game_content_type': isGame ? gameContentType : null,
     'game_edition': isGame ? gameEdition : null,
     'game_play_status': isGame ? gamePlayStatus : null,
-    'status': status,
     'updated_at': DateTime.now().toUtc().toIso8601String(),
   };
 }

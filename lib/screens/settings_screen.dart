@@ -270,7 +270,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
         const Divider(height: 30),
         Text('数据备份', style: Theme.of(context).textTheme.titleMedium),
         const SizedBox(height: 8),
-        const Text('导出包含收藏、封面、分类、壁纸和展示设置的 JSON 文件。请妥善保存。'),
+        const Text('导出包含收藏、封面、分类、壁纸和展示设置的 ZIP 文件。仍可导入旧版 JSON 备份。请妥善保存。'),
         const SizedBox(height: 8),
         OutlinedButton.icon(
           onPressed: _busy ? null : _export,

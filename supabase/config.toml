@@ -1,0 +1,3 @@
+[functions.catalog-search]
+# The function validates each session against Supabase Auth before searching.
+verify_jwt = false

@@ -1,15 +1,13 @@
 import '../models/collection_item.dart';
 
 class CollectionStats {
-  CollectionStats(List<CollectionItem> items)
-    : items = items.where((item) => item.status != 'wanted').toList();
+  CollectionStats(this.items);
 
   final List<CollectionItem> items;
 
   double get totalInvestment =>
       items.fold(0, (sum, item) => sum + (item.priceCny ?? 0));
-  List<CollectionItem> get inHand =>
-      items.where((item) => item.status != 'sold').toList();
+  List<CollectionItem> get inHand => items;
   double get inHandValue =>
       inHand.fold(0, (sum, item) => sum + (item.priceCny ?? 0));
 

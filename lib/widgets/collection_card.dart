@@ -36,31 +36,7 @@ class CollectionCard extends StatelessWidget {
               fit: StackFit.expand,
               children: [
                 PrivateCover(imageUrl: item.coverImage, images: images),
-                Positioned(
-                  left: 12,
-                  top: 12,
-                  child: DecoratedBox(
-                    decoration: BoxDecoration(
-                      color: Colors.white.withValues(alpha: 0.94),
-                      borderRadius: BorderRadius.circular(20),
-                    ),
-                    child: Padding(
-                      padding: const EdgeInsets.symmetric(
-                        horizontal: 10,
-                        vertical: 6,
-                      ),
-                      child: Text(
-                        item.statusLabel,
-                        style: const TextStyle(
-                          color: AppTheme.ink,
-                          fontSize: 11,
-                          fontWeight: FontWeight.w600,
-                        ),
-                      ),
-                    ),
-                  ),
-                ),
-                if (preferences.showOwnedDays && item.status != 'wanted')
+                if (preferences.showOwnedDays)
                   Positioned(
                     right: 9,
                     top: 9,

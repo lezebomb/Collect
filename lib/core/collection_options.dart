@@ -1,13 +1,5 @@
 const collectionCategories = <String>['游戏', '周边', '配件', '主机', '其他'];
 
-const itemStatusLabels = <String, String>{
-  'wanted': '想拥有',
-  'owned': '已拥有',
-  'using': '正在使用',
-  'idle': '闲置',
-  'sold': '已出售',
-};
-
 const gamePlatforms = <String>['Nintendo', 'PC'];
 const gameContentTypes = <String>['本体', 'DLC', '本体+DLC'];
 const gameEditions = <String>['实体版', '数字版'];

@@ -6,12 +6,22 @@ import 'package:supabase_flutter/supabase_flutter.dart';
 import 'package:uuid/uuid.dart';
 
 import '../core/collection_options.dart';
+import '../models/catalog_candidate.dart';
 import '../models/collection_item.dart';
 import '../repositories/item_repository.dart';
 import '../repositories/preferences_repository.dart';
-import '../services/catalog_service.dart';
 import '../services/cover_image_service.dart';
-import '../widgets/private_cover.dart';
+import '../services/currency_rate_service.dart';
+import '../services/game_search_service.dart';
+import '../services/image_search_service.dart';
+import '../services/ocr_service.dart';
+import '../services/product_search_service.dart';
+import '../services/search_http.dart';
+import '../services/tavily_search_service.dart';
+import '../widgets/item_game_section.dart';
+import '../widgets/item_image_section.dart';
+import '../widgets/item_price_section.dart';
+import '../widgets/catalog_candidate_image.dart';
 
 class ItemFormScreen extends StatefulWidget {
   const ItemFormScreen({
@@ -34,7 +44,13 @@ class ItemFormScreen extends StatefulWidget {
 class _ItemFormScreenState extends State<ItemFormScreen> {
   final _formKey = GlobalKey<FormState>();
   final _picker = ImagePicker();
-  final _catalog = CatalogService();
+  final _games = GameSearchService();
+  final _products = ProductSearchService();
+  final _imageSearch = ImageSearchService(
+    tavily: TavilySearchService(Supabase.instance.client),
+  );
+  final _ocr = OcrService();
+  final _rates = CurrencyRateService();
   late final _name = TextEditingController(text: widget.initial?.name);
   late final _description = TextEditingController(
     text: widget.initial?.description,
@@ -47,7 +63,6 @@ class _ItemFormScreenState extends State<ItemFormScreen> {
   );
   late String _category =
       widget.initial?.category ?? collectionCategories.first;
-  late String _status = widget.initial?.status ?? 'owned';
   late String _currency = widget.initial?.currency ?? 'CNY';
   late String? _platform = widget.initial?.gamePlatform;
   late String? _contentType = widget.initial?.gameContentType;
@@ -129,29 +144,66 @@ class _ItemFormScreenState extends State<ItemFormScreen> {
   Future<void> _recognize(XFile image) async {
     setState(() => _busy = true);
     try {
-      final lines = await _catalog.recognize(image);
+      final lines = await _ocr.recognize(image);
       if (!mounted) return;
       if (lines.isEmpty) {
         _message('没有识别到文字，请手动填写或搜索');
         return;
       }
+      final chosen = <String>{};
       final selected = await showDialog<String>(
         context: context,
-        builder: (context) => SimpleDialog(
-          title: const Text('选择识别到的名称'),
-          children: lines
-              .map(
-                (line) => SimpleDialogOption(
-                  onPressed: () => Navigator.pop(context, line),
-                  child: Text(line),
-                ),
-              )
-              .toList(),
+        builder: (context) => StatefulBuilder(
+          builder: (context, update) => AlertDialog(
+            title: const Text('选择组成名称的文字'),
+            content: SizedBox(
+              width: double.maxFinite,
+              height: MediaQuery.sizeOf(context).height * .5,
+              child: ListView(
+                children: lines
+                    .map(
+                      (line) => CheckboxListTile(
+                        value: chosen.contains(line),
+                        title: Text(line),
+                        onChanged: (checked) => update(() {
+                          if (checked == true) {
+                            chosen.add(line);
+                          } else {
+                            chosen.remove(line);
+                          }
+                        }),
+                      ),
+                    )
+                    .toList(),
+              ),
+            ),
+            actions: [
+              TextButton(
+                onPressed: () => Navigator.pop(context),
+                child: const Text('取消'),
+              ),
+              FilledButton(
+                onPressed: chosen.isEmpty
+                    ? null
+                    : () => Navigator.pop(
+                        context,
+                        lines.where(chosen.contains).join(' '),
+                      ),
+                child: const Text('搜索'),
+              ),
+            ],
+          ),
         ),
       );
       if (selected != null) {
-        _name.text = selected;
-        await _searchCatalog();
+        if (selected.length > 160) {
+          _message('识别文字太长，请减少选择或手动输入名称');
+          return;
+        }
+        if (_name.text.trim().isEmpty && selected.length <= 120) {
+          _name.text = selected;
+        }
+        await _searchCatalog(queryOverride: selected);
       }
     } catch (error) {
       if (mounted) _message('识别失败：$error');
@@ -160,21 +212,39 @@ class _ItemFormScreenState extends State<ItemFormScreen> {
     }
   }
 
-  Future<void> _searchCatalog() async {
-    final query = _name.text.trim();
+  Future<void> _searchCatalog({String? queryOverride}) async {
+    FocusScope.of(context).unfocus();
+    final query = (queryOverride ?? _name.text).trim();
     if (query.isEmpty) {
       _message('先输入要搜索的名称');
       return;
     }
     setState(() => _busy = true);
     try {
-      final results = await _catalog.searchImages(query, category: _category);
+      final searches = await Future.wait([
+        if (_category == '游戏')
+          _games.search(query)
+        else
+          _products.search(query),
+        _imageSearch.search(query),
+      ]).timeout(const Duration(seconds: 11));
+      final found = searches.expand((items) => items);
+      final unique = <String, CatalogCandidate>{};
+      for (final candidate in found) {
+        unique.putIfAbsent(candidate.imageUrl, () => candidate);
+      }
+      final results = unique.values.toList()
+        ..sort(
+          (a, b) =>
+              _candidateScore(b, query).compareTo(_candidateScore(a, query)),
+        );
       if (!mounted) return;
       if (results.isEmpty) {
-        _message('没有找到图片，可以换个关键词或自行选图');
+        final alternate = await _promptSearchTerm(query);
+        if (alternate != null) await _searchCatalog(queryOverride: alternate);
         return;
       }
-      final selected = await showModalBottomSheet<CatalogImage>(
+      final selected = await showModalBottomSheet<Object>(
         context: context,
         isScrollControlled: true,
         builder: (context) => SafeArea(
@@ -191,7 +261,11 @@ class _ItemFormScreenState extends State<ItemFormScreen> {
                         style: Theme.of(context).textTheme.titleLarge,
                       ),
                       const SizedBox(height: 6),
-                      const Text('选中图片后，可决定是否使用图片对应的标题'),
+                      const Text('选择资料后，再决定要填充哪些内容'),
+                      TextButton(
+                        onPressed: () => Navigator.pop(context, 'refine'),
+                        child: const Text('换个关键词搜索（不改收藏名称）'),
+                      ),
                     ],
                   ),
                 ),
@@ -202,7 +276,7 @@ class _ItemFormScreenState extends State<ItemFormScreen> {
                     gridDelegate:
                         const SliverGridDelegateWithFixedCrossAxisCount(
                           crossAxisCount: 2,
-                          childAspectRatio: .78,
+                          childAspectRatio: .68,
                           crossAxisSpacing: 10,
                           mainAxisSpacing: 10,
                         ),
@@ -216,12 +290,9 @@ class _ItemFormScreenState extends State<ItemFormScreen> {
                             crossAxisAlignment: CrossAxisAlignment.stretch,
                             children: [
                               Expanded(
-                                child: Image.network(
-                                  result.previewUrl ?? result.imageUrl,
-                                  fit: BoxFit.contain,
-                                  errorBuilder: (_, _, _) => const Center(
-                                    child: Icon(Icons.broken_image_outlined),
-                                  ),
+                                child: CatalogCandidateImage(
+                                  candidate: result,
+                                  images: _imageSearch,
                                 ),
                               ),
                               Padding(
@@ -234,11 +305,28 @@ class _ItemFormScreenState extends State<ItemFormScreen> {
                               ),
                               Padding(
                                 padding: const EdgeInsets.fromLTRB(8, 0, 8, 6),
-                                child: Text(
-                                  result.source,
-                                  maxLines: 1,
-                                  overflow: TextOverflow.ellipsis,
-                                  style: Theme.of(context).textTheme.labelSmall,
+                                child: Column(
+                                  crossAxisAlignment: CrossAxisAlignment.start,
+                                  children: [
+                                    Text(
+                                      result.description.isEmpty
+                                          ? '暂无简介'
+                                          : result.description,
+                                      maxLines: 2,
+                                      overflow: TextOverflow.ellipsis,
+                                      style: Theme.of(context)
+                                          .textTheme
+                                          .bodySmall,
+                                    ),
+                                    Text(
+                                      result.source,
+                                      maxLines: 1,
+                                      overflow: TextOverflow.ellipsis,
+                                      style: Theme.of(context)
+                                          .textTheme
+                                          .labelSmall,
+                                    ),
+                                  ],
                                 ),
                               ),
                             ],
@@ -253,32 +341,40 @@ class _ItemFormScreenState extends State<ItemFormScreen> {
           ),
         ),
       );
-      if (selected == null || !mounted) return;
-      final useSelectedTitle = await showDialog<bool>(
+      if (selected == 'refine' && mounted) {
+        final alternate = await _promptSearchTerm(query);
+        if (alternate != null) await _searchCatalog(queryOverride: alternate);
+        return;
+      }
+      if (selected is! CatalogCandidate || !mounted) return;
+      final action = await showDialog<String>(
         context: context,
         builder: (dialogContext) => AlertDialog(
-          title: const Text('名称如何填写？'),
+          title: const Text('使用这条资料'),
           content: Column(
             mainAxisSize: MainAxisSize.min,
             children: [
               ListTile(
-                title: const Text('保留我输入的名称'),
-                subtitle: Text(
-                  query,
-                  maxLines: 2,
-                  overflow: TextOverflow.ellipsis,
-                ),
-                onTap: () => Navigator.pop(dialogContext, false),
+                title: const Text('仅使用图片'),
+                subtitle: const Text('保留自己的名称和简介'),
+                onTap: () => Navigator.pop(dialogContext, 'image'),
               ),
-              ListTile(
-                title: const Text('使用图片对应的标题'),
-                subtitle: Text(
-                  selected.title,
-                  maxLines: 2,
-                  overflow: TextOverflow.ellipsis,
+              if (selected.description.isNotEmpty)
+                ListTile(
+                  title: const Text('填充简介'),
+                  subtitle: const Text('使用图片和这条资料的简介，保留自己的名称'),
+                  onTap: () => Navigator.pop(dialogContext, 'description'),
                 ),
-                onTap: () => Navigator.pop(dialogContext, true),
-              ),
+              if (selected.officialTitle)
+                ListTile(
+                  title: const Text('使用官方名称'),
+                  subtitle: Text(
+                    selected.title,
+                    maxLines: 2,
+                    overflow: TextOverflow.ellipsis,
+                  ),
+                  onTap: () => Navigator.pop(dialogContext, 'title'),
+                ),
             ],
           ),
           actions: [
@@ -289,12 +385,14 @@ class _ItemFormScreenState extends State<ItemFormScreen> {
           ],
         ),
       );
-      if (useSelectedTitle == null || !mounted) return;
+      if (action == null || !mounted) return;
       try {
-        final cover = await _catalog.coverFile(selected.imageUrl);
+        final cover = await _imageSearch.download(selected);
         await _setCover(cover);
-        if (useSelectedTitle) _name.text = selected.title;
-      } catch (_) {
+        if (action == 'description') _description.text = selected.description;
+        if (action == 'title') _name.text = selected.title;
+      } catch (error) {
+        debugPrint('Catalog image download failed: $error');
         if (mounted) _message('图片下载失败，请选择另一张');
       }
     } catch (error) {
@@ -302,6 +400,55 @@ class _ItemFormScreenState extends State<ItemFormScreen> {
     } finally {
       if (mounted) setState(() => _busy = false);
     }
+  }
+
+  Future<String?> _promptSearchTerm(String previous) async {
+    if (!mounted) return null;
+    var entered = previous;
+    final term = await showDialog<String>(
+      context: context,
+      builder: (dialogContext) => AlertDialog(
+        title: const Text('换个关键词搜索'),
+        content: TextFormField(
+          initialValue: previous,
+          onChanged: (value) => entered = value.trim(),
+          autofocus: true,
+          decoration: const InputDecoration(
+            labelText: '搜索关键词',
+            helperText: '可输入英文名；收藏名称会保留',
+          ),
+          onFieldSubmitted: (value) =>
+              Navigator.pop(dialogContext, value.trim()),
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(dialogContext),
+            child: const Text('取消'),
+          ),
+          FilledButton(
+            onPressed: () => Navigator.pop(dialogContext, entered),
+            child: const Text('搜索'),
+          ),
+        ],
+      ),
+    );
+    return term == null || term.runes.length < 2 ? null : term;
+  }
+
+  int _candidateScore(CatalogCandidate candidate, String query) {
+    final title = normalizedTitle(candidate.title);
+    final term = normalizedTitle(query);
+    var score = candidate.officialTitle ? 30 : 0;
+    if (candidate.source.startsWith('Tavily')) score += 20;
+    if (title == term) {
+      score += 100;
+    } else if (title.startsWith(term)) {
+      score += 70;
+    } else if (title.contains(term)) {
+      score += 45;
+    }
+    if (candidate.description.isNotEmpty) score += 5;
+    return score;
   }
 
   Future<void> _addCategory() async {
@@ -360,7 +507,7 @@ class _ItemFormScreenState extends State<ItemFormScreen> {
     }
     setState(() => _busy = true);
     try {
-      final rate = await _catalog.cnyRate(_currency);
+      final rate = await _rates.cnyRate(_currency);
       _priceCny.text = (amount * rate).toStringAsFixed(2);
       if (mounted) _message('已按当前汇率估算，可手动调整');
     } catch (error) {
@@ -400,7 +547,6 @@ class _ItemFormScreenState extends State<ItemFormScreen> {
       userId: user.id,
       name: _name.text.trim(),
       category: _category,
-      status: _status,
       coverImage: widget.initial?.coverImage,
       description: _description.text.trim(),
       purchaseDate: _purchaseDate,
@@ -463,55 +609,18 @@ class _ItemFormScreenState extends State<ItemFormScreen> {
           child: ListView(
             padding: const EdgeInsets.fromLTRB(20, 8, 20, 32),
             children: [
-              ClipRRect(
-                borderRadius: BorderRadius.circular(20),
-                child: AspectRatio(
-                  aspectRatio: 1.7,
-                  child: _preview != null
-                      ? Image.memory(_preview!, fit: BoxFit.contain)
-                      : (!_removeCover && widget.initial?.coverImage != null)
-                      ? PrivateCover(
-                          imageUrl: widget.initial!.coverImage,
-                          images: widget.images,
-                        )
-                      : const ColoredBox(
-                          color: Color(0xFFE5EAE4),
-                          child: Icon(
-                            Icons.add_photo_alternate_outlined,
-                            size: 54,
-                          ),
-                        ),
-                ),
-              ),
-              Wrap(
-                spacing: 8,
-                children: [
-                  TextButton.icon(
-                    onPressed: _busy
-                        ? null
-                        : () => _pickCover(ImageSource.gallery),
-                    icon: const Icon(Icons.photo_library_outlined),
-                    label: const Text('选择图片'),
-                  ),
-                  TextButton.icon(
-                    onPressed: _busy
-                        ? null
-                        : () => _pickCover(ImageSource.camera),
-                    icon: const Icon(Icons.camera_alt_outlined),
-                    label: const Text('拍照识别'),
-                  ),
-                  if (_preview != null || widget.initial?.coverImage != null)
-                    TextButton(
-                      onPressed: _busy
-                          ? null
-                          : () => setState(() {
-                              _newCover = null;
-                              _preview = null;
-                              _removeCover = true;
-                            }),
-                      child: const Text('移除图片'),
-                    ),
-                ],
+              ItemImageSection(
+                preview: _preview,
+                imageUrl: _removeCover ? null : widget.initial?.coverImage,
+                images: widget.images,
+                busy: _busy,
+                onGallery: () => _pickCover(ImageSource.gallery),
+                onCamera: () => _pickCover(ImageSource.camera),
+                onRemove: () => setState(() {
+                  _newCover = null;
+                  _preview = null;
+                  _removeCover = true;
+                }),
               ),
               const SizedBox(height: 12),
               TextFormField(
@@ -522,7 +631,7 @@ class _ItemFormScreenState extends State<ItemFormScreen> {
                   suffixIcon: IconButton(
                     tooltip: '搜索资料',
                     icon: const Icon(Icons.search),
-                    onPressed: _busy ? null : _searchCatalog,
+                    onPressed: _busy ? null : () => _searchCatalog(),
                   ),
                 ),
                 validator: (v) =>
@@ -546,111 +655,29 @@ class _ItemFormScreenState extends State<ItemFormScreen> {
                   ),
                 ],
               ),
-              if (_category == '游戏') ...[
-                const SizedBox(height: 14),
-                _choice(
-                  '平台',
-                  _platform,
-                  gamePlatforms,
-                  (v) => setState(() => _platform = v),
+              if (_category == '游戏')
+                ItemGameSection(
+                  platform: _platform,
+                  contentType: _contentType,
+                  edition: _edition,
+                  playStatus: _playStatus,
+                  busy: _busy,
+                  onPlatform: (v) => setState(() => _platform = v),
+                  onContentType: (v) => setState(() => _contentType = v),
+                  onEdition: (v) => setState(() => _edition = v),
+                  onPlayStatus: (v) => setState(() => _playStatus = v),
                 ),
-                const SizedBox(height: 14),
-                _choice(
-                  '内容类型',
-                  _contentType,
-                  gameContentTypes,
-                  (v) => setState(() => _contentType = v),
-                ),
-                const SizedBox(height: 14),
-                _choice(
-                  '版本类型',
-                  _edition,
-                  gameEditions,
-                  (v) => setState(() => _edition = v),
-                ),
-                const SizedBox(height: 14),
-                _choice(
-                  '游玩状态',
-                  _playStatus,
-                  gamePlayStatuses,
-                  (v) => setState(() => _playStatus = v),
-                ),
-              ],
-              const SizedBox(height: 14),
-              DropdownButtonFormField<String>(
-                initialValue: _status,
-                decoration: const InputDecoration(labelText: '收藏状态'),
-                items: itemStatusLabels.entries
-                    .map(
-                      (entry) => DropdownMenuItem(
-                        value: entry.key,
-                        child: Text(entry.value),
-                      ),
-                    )
-                    .toList(),
-                onChanged: _busy
-                    ? null
-                    : (v) => setState(() => _status = v ?? _status),
+              ItemPriceSection(
+                purchaseDate: _purchaseDate,
+                price: _price,
+                priceCny: _priceCny,
+                currency: _currency,
+                busy: _busy,
+                onChooseDate: _chooseDate,
+                onClearDate: () => setState(() => _purchaseDate = null),
+                onCurrency: (v) => setState(() => _currency = v ?? 'CNY'),
+                onEstimateCny: _estimateCny,
               ),
-              const SizedBox(height: 14),
-              OutlinedButton.icon(
-                onPressed: _busy ? null : _chooseDate,
-                icon: const Icon(Icons.calendar_today_outlined),
-                label: Text(
-                  _purchaseDate == null ? '选择购入日期' : dateOnly(_purchaseDate!),
-                ),
-              ),
-              if (_purchaseDate != null)
-                Align(
-                  alignment: Alignment.centerRight,
-                  child: TextButton(
-                    onPressed: _busy
-                        ? null
-                        : () => setState(() => _purchaseDate = null),
-                    child: const Text('清除日期'),
-                  ),
-                ),
-              const SizedBox(height: 14),
-              Row(
-                children: [
-                  Expanded(
-                    flex: 2,
-                    child: TextFormField(
-                      controller: _price,
-                      keyboardType: const TextInputType.numberWithOptions(
-                        decimal: true,
-                      ),
-                      decoration: const InputDecoration(labelText: '购入价格'),
-                    ),
-                  ),
-                  const SizedBox(width: 10),
-                  Expanded(
-                    child: _choice(
-                      '货币',
-                      _currency,
-                      currencies.keys.toList(),
-                      (v) => setState(() => _currency = v ?? 'CNY'),
-                    ),
-                  ),
-                ],
-              ),
-              if (_currency != 'CNY') ...[
-                const SizedBox(height: 14),
-                TextFormField(
-                  controller: _priceCny,
-                  keyboardType: const TextInputType.numberWithOptions(
-                    decimal: true,
-                  ),
-                  decoration: InputDecoration(
-                    labelText: '折合人民币',
-                    suffixIcon: IconButton(
-                      tooltip: '按当前汇率估算',
-                      onPressed: _busy ? null : _estimateCny,
-                      icon: const Icon(Icons.currency_exchange),
-                    ),
-                  ),
-                ),
-              ],
               const SizedBox(height: 14),
               TextFormField(
                 controller: _description,

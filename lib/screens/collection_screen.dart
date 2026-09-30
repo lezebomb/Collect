@@ -42,14 +42,19 @@ class _CollectionScreenState extends State<CollectionScreen> {
   String _sort = 'created_desc';
 
   Future<_HomeData> _load() async {
-    final results = await Future.wait<Object>([
-      _itemsRepository.list(),
-      _preferencesRepository.load(),
-    ]);
-    return (
-      items: results[0] as List<CollectionItem>,
-      preferences: results[1] as UserPreferences,
-    );
+    try {
+      final results = await Future.wait<Object>([
+        _itemsRepository.list(),
+        _preferencesRepository.load(),
+      ]);
+      return (
+        items: results[0] as List<CollectionItem>,
+        preferences: results[1] as UserPreferences,
+      );
+    } catch (error) {
+      debugPrint('Collection load failed: $error');
+      rethrow;
+    }
   }
 
   Future<void> _reload() async {

@@ -55,6 +55,51 @@ class _AuthScreenState extends State<AuthScreen> {
     }
   }
 
+  Future<void> _forgotPassword() async {
+    var entered = _email.text.trim();
+    final email = await showDialog<String>(
+      context: context,
+      builder: (dialogContext) => AlertDialog(
+        title: const Text('找回密码'),
+        content: TextFormField(
+          initialValue: entered,
+          onChanged: (value) => entered = value.trim(),
+          keyboardType: TextInputType.emailAddress,
+          decoration: const InputDecoration(labelText: '注册邮箱'),
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(dialogContext),
+            child: const Text('取消'),
+          ),
+          FilledButton(
+            onPressed: () => Navigator.pop(dialogContext, entered),
+            child: const Text('发送重置邮件'),
+          ),
+        ],
+      ),
+    );
+    if (email == null) return;
+    if (!email.contains('@') || !email.contains('.')) {
+      setState(() => _message = '请输入有效邮箱');
+      return;
+    }
+    setState(() {
+      _busy = true;
+      _message = null;
+    });
+    try {
+      await widget.auth.requestPasswordReset(email);
+      if (mounted) setState(() => _message = '如果邮箱已注册，重置邮件已发送，请在手机上打开邮件中的链接。');
+    } on AuthException catch (error) {
+      if (mounted) setState(() => _message = error.message);
+    } catch (_) {
+      if (mounted) setState(() => _message = '暂时无法发送，请稍后重试。');
+    } finally {
+      if (mounted) setState(() => _busy = false);
+    }
+  }
+
   @override
   Widget build(BuildContext context) => Scaffold(
     body: SafeArea(
@@ -122,7 +167,9 @@ class _AuthScreenState extends State<AuthScreen> {
                     Text(
                       _message!,
                       style: TextStyle(
-                        color: _message!.startsWith('注册成功')
+                        color:
+                            _message!.startsWith('注册成功') ||
+                                _message!.startsWith('如果邮箱已注册')
                             ? AppTheme.accent
                             : Theme.of(context).colorScheme.error,
                       ),
@@ -143,6 +190,14 @@ class _AuthScreenState extends State<AuthScreen> {
                     ),
                   ),
                   const SizedBox(height: 12),
+                  if (!_register)
+                    Align(
+                      alignment: Alignment.centerRight,
+                      child: TextButton(
+                        onPressed: _busy ? null : _forgotPassword,
+                        child: const Text('忘记密码？'),
+                      ),
+                    ),
                   Center(
                     child: TextButton(
                       onPressed: _busy

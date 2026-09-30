@@ -11,8 +11,6 @@ create table if not exists public.items (
   description text not null default '',
   purchase_date date,
   price numeric(12, 2) check (price is null or price >= 0),
-  status text not null default 'owned' check (status in ('wanted', 'owned', 'using', 'idle', 'sold')),
-  rating smallint check (rating is null or rating between 1 and 5),
   created_at timestamptz not null default now(),
   updated_at timestamptz not null default now()
 );
