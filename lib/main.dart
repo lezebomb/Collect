@@ -24,7 +24,7 @@ class CollectionApp extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) => MaterialApp(
-    title: '收藏柜',
+    title: 'Dearshelf',
     debugShowCheckedModeBanner: false,
     theme: AppTheme.light,
     home: _supabaseUrl.isEmpty || _publishableKey.isEmpty
