@@ -1,12 +1,14 @@
 import 'package:flutter/material.dart';
 
 import '../core/app_theme.dart';
+import '../core/app_ui.dart';
 import '../core/collection_options.dart';
 import '../models/collection_item.dart';
 import '../repositories/item_repository.dart';
 import '../repositories/preferences_repository.dart';
 import '../services/cover_image_service.dart';
 import '../widgets/private_cover.dart';
+import '../widgets/section_card.dart';
 import 'item_form_screen.dart';
 
 class ItemDetailScreen extends StatefulWidget {
@@ -101,7 +103,7 @@ class _ItemDetailScreenState extends State<ItemDetailScreen> {
     body: _deleting
         ? const Center(child: CircularProgressIndicator())
         : SingleChildScrollView(
-            padding: const EdgeInsets.fromLTRB(20, 8, 20, 32),
+            padding: AppSpacing.page,
             child: Center(
               child: ConstrainedBox(
                 constraints: const BoxConstraints(maxWidth: 620),
@@ -109,22 +111,28 @@ class _ItemDetailScreenState extends State<ItemDetailScreen> {
                   crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
                     ClipRRect(
-                      borderRadius: BorderRadius.circular(24),
+                      borderRadius: BorderRadius.circular(AppRadius.card),
                       child: AspectRatio(
-                        aspectRatio: 1.15,
-                        child: PrivateCover(
-                          imageUrl: _item.coverImage,
-                          images: widget.images,
+                        aspectRatio: 1.35,
+                        child: ColoredBox(
+                          color: const Color(0xFFEFF1EC),
+                          child: PrivateCover(
+                            imageUrl: _item.coverImage,
+                            images: widget.images,
+                            fit: BoxFit.contain,
+                          ),
                         ),
                       ),
                     ),
-                    const SizedBox(height: 28),
-                    Text(
-                      _item.category,
-                      style: const TextStyle(
-                        color: AppTheme.accent,
-                        fontWeight: FontWeight.w700,
-                      ),
+                    const SizedBox(height: AppSpacing.xl),
+                    Wrap(
+                      spacing: AppSpacing.sm,
+                      runSpacing: AppSpacing.sm,
+                      children: [
+                        Chip(label: Text(_item.category)),
+                        if (_item.isGame && _item.gamePlayStatus != null)
+                          Chip(label: Text(_item.gamePlayStatus!)),
+                      ],
                     ),
                     const SizedBox(height: 7),
                     Text(
@@ -136,23 +144,41 @@ class _ItemDetailScreenState extends State<ItemDetailScreen> {
                           ),
                     ),
                     if (_item.isGame) ...[
-                      const SizedBox(height: 20),
-                      if (_item.gamePlatform != null)
-                        _FactRow('平台', _item.gamePlatform!),
-                      if (_item.gameContentType != null)
-                        _FactRow('内容类型', _item.gameContentType!),
-                      if (_item.gameEdition != null)
-                        _FactRow('版本类型', _item.gameEdition!),
-                      if (_item.gamePlayStatus != null)
-                        _FactRow('游玩状态', _item.gamePlayStatus!),
+                      const SizedBox(height: AppSpacing.xl),
+                      SectionCard(
+                        title: '游戏信息',
+                        icon: Icons.sports_esports_outlined,
+                        child: Column(
+                          children: [
+                            if (_item.gamePlatform != null)
+                              _FactRow('平台', _item.gamePlatform!),
+                            if (_item.gameContentType != null)
+                              _FactRow('内容类型', _item.gameContentType!),
+                            if (_item.gameEdition != null)
+                              _FactRow('版本类型', _item.gameEdition!),
+                            if (_item.gamePlayStatus != null)
+                              _FactRow('游玩状态', _item.gamePlayStatus!),
+                          ],
+                        ),
+                      ),
                     ],
                     if (_item.purchaseDate != null || _item.price != null) ...[
-                      const SizedBox(height: 25),
-                      const Divider(),
-                      if (_item.purchaseDate != null)
-                        _FactRow('购买日期', dateOnly(_item.purchaseDate!)),
-                      if (_item.price != null)
-                        _FactRow('购买价格', money(_item.price!, _item.currency)),
+                      const SizedBox(height: AppSpacing.lg),
+                      SectionCard(
+                        title: '收藏记录',
+                        icon: Icons.bookmark_outline_rounded,
+                        child: Column(
+                          children: [
+                            if (_item.purchaseDate != null)
+                              _FactRow('购买日期', dateOnly(_item.purchaseDate!)),
+                            if (_item.price != null)
+                              _FactRow(
+                                '购买价格',
+                                money(_item.price!, _item.currency),
+                              ),
+                          ],
+                        ),
+                      ),
                     ],
                     const SizedBox(height: 24),
                     Text(
@@ -190,13 +216,18 @@ class _FactRow extends StatelessWidget {
     padding: const EdgeInsets.symmetric(vertical: 11),
     child: Row(
       children: [
-        Text(label, style: const TextStyle(color: AppTheme.muted)),
-        const Spacer(),
-        Text(
-          value,
-          style: const TextStyle(
-            color: AppTheme.ink,
-            fontWeight: FontWeight.w600,
+        Expanded(
+          child: Text(label, style: const TextStyle(color: AppTheme.muted)),
+        ),
+        const SizedBox(width: AppSpacing.md),
+        Expanded(
+          child: Text(
+            value,
+            textAlign: TextAlign.end,
+            style: const TextStyle(
+              color: AppTheme.ink,
+              fontWeight: FontWeight.w600,
+            ),
           ),
         ),
       ],

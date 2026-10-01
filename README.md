@@ -40,7 +40,7 @@
 ## 功能
 
 - 展柜按添加时间、购入时间、价格和名称排序，可按分类筛选并搜索名称或描述。
-- 添加时可手动填写，也可拍照识别包装上的文字。资料搜索展示图片、名称、简介和来源；选中后可仅使用图片，或显式填充简介、资料名称，默认保留自己的名称。游戏候选来自 [GameTDB](https://www.gametdb.com/)、[CheapShark](https://www.cheapshark.com/) 和 Steam；通用图片来自 [Tavily](https://www.tavily.com/)、[Bing 图片](https://www.bing.com/images/search)、[Openverse](https://openverse.org/) 与 [Wikimedia Commons](https://commons.wikimedia.org/)，书籍资料来自 [Google Books](https://books.google.com/) 和 [Open Library](https://openlibrary.org/)。搜索源失效时可以换词重搜或选本机图片。
+- 添加时可手动填写，也可拍照识别包装上的文字。资料搜索展示图片、名称和来源；选中后分别勾选是否使用封面、是否使用结果名称。默认只使用图片，保留自己的名称，描述由用户自己填写。游戏候选来自 [GameTDB](https://www.gametdb.com/)、[CheapShark](https://www.cheapshark.com/) 和 Steam；通用图片来自 [Tavily](https://www.tavily.com/)、[Bing 图片](https://www.bing.com/images/search)、[Openverse](https://openverse.org/) 与 [Wikimedia Commons](https://commons.wikimedia.org/)，书籍资料来自 [Google Books](https://books.google.com/) 和 [Open Library](https://openlibrary.org/)。搜索源失效时可以换词重搜或选本机图片。
 - 默认分类为游戏、周边、配件、主机和其他，可添加自定义分类。游戏可填写 Nintendo/PC 平台、内容类型、实体/数字版和游玩状态。
 - 收藏物品均视为已拥有，不再保存通用收藏状态或评分。
 - 价格默认人民币，支持美元、港币、日元、欧元及英镑。外币的人民币折算额用于跨币种统计，可按当前汇率估算或手动填写。保存后的折算额不会随汇率波动自动变化。

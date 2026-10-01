@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 
 import '../core/collection_options.dart';
+import '../core/app_ui.dart';
 
 class ItemPriceSection extends StatelessWidget {
   const ItemPriceSection({
@@ -29,7 +30,6 @@ class ItemPriceSection extends StatelessWidget {
   @override
   Widget build(BuildContext context) => Column(
     children: [
-      const SizedBox(height: 14),
       OutlinedButton.icon(
         onPressed: busy ? null : onChooseDate,
         icon: const Icon(Icons.calendar_today_outlined),
@@ -43,12 +43,13 @@ class ItemPriceSection extends StatelessWidget {
             child: const Text('清除日期'),
           ),
         ),
-      const SizedBox(height: 14),
+      const SizedBox(height: AppSpacing.md),
       Row(
         children: [
           Expanded(
             flex: 2,
             child: TextFormField(
+              enabled: !busy,
               controller: price,
               keyboardType: const TextInputType.numberWithOptions(
                 decimal: true,
@@ -59,8 +60,17 @@ class ItemPriceSection extends StatelessWidget {
           const SizedBox(width: 10),
           Expanded(
             child: DropdownButtonFormField<String>(
+              isExpanded: true,
+              iconSize: 20,
+              style: Theme.of(context).textTheme.bodyMedium,
               initialValue: currency,
-              decoration: const InputDecoration(labelText: '货币'),
+              decoration: const InputDecoration(
+                labelText: '货币',
+                contentPadding: EdgeInsets.symmetric(
+                  horizontal: AppSpacing.md,
+                  vertical: 13,
+                ),
+              ),
               items: currencies.keys
                   .map((v) => DropdownMenuItem(value: v, child: Text(v)))
                   .toList(),
@@ -72,6 +82,7 @@ class ItemPriceSection extends StatelessWidget {
       if (currency != 'CNY') ...[
         const SizedBox(height: 14),
         TextFormField(
+          enabled: !busy,
           controller: priceCny,
           keyboardType: const TextInputType.numberWithOptions(decimal: true),
           decoration: InputDecoration(

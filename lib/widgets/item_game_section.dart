@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 
 import '../core/collection_options.dart';
+import '../core/app_ui.dart';
 
 class ItemGameSection extends StatelessWidget {
   const ItemGameSection({
@@ -32,10 +33,16 @@ class ItemGameSection extends StatelessWidget {
     List<String> values,
     ValueChanged<String?> onChanged,
   ) => DropdownButtonFormField<String>(
+    isExpanded: true,
     initialValue: value,
     decoration: InputDecoration(labelText: label),
     items: values
-        .map((v) => DropdownMenuItem(value: v, child: Text(v)))
+        .map(
+          (v) => DropdownMenuItem(
+            value: v,
+            child: Text(v, maxLines: 1, overflow: TextOverflow.ellipsis),
+          ),
+        )
         .toList(),
     onChanged: busy ? null : onChanged,
   );
@@ -43,13 +50,12 @@ class ItemGameSection extends StatelessWidget {
   @override
   Widget build(BuildContext context) => Column(
     children: [
-      const SizedBox(height: 14),
       _choice('平台', platform, gamePlatforms, onPlatform),
-      const SizedBox(height: 14),
+      const SizedBox(height: AppSpacing.md),
       _choice('内容类型', contentType, gameContentTypes, onContentType),
-      const SizedBox(height: 14),
+      const SizedBox(height: AppSpacing.md),
       _choice('版本类型', edition, gameEditions, onEdition),
-      const SizedBox(height: 14),
+      const SizedBox(height: AppSpacing.md),
       _choice('游玩状态', playStatus, gamePlayStatuses, onPlayStatus),
     ],
   );

@@ -1,6 +1,9 @@
 import 'package:flutter/material.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
 
+import '../core/app_theme.dart';
+import '../core/app_ui.dart';
+
 import '../models/collection_item.dart';
 import '../models/user_preferences.dart';
 import '../repositories/item_repository.dart';
@@ -40,6 +43,7 @@ class _CollectionScreenState extends State<CollectionScreen> {
   int _tab = 0;
   String? _category;
   String _sort = 'created_desc';
+  bool _signingOut = false;
 
   Future<_HomeData> _load() async {
     try {
@@ -156,21 +160,36 @@ class _CollectionScreenState extends State<CollectionScreen> {
   @override
   Widget build(BuildContext context) => Scaffold(
     appBar: AppBar(
-      title: const Text('收藏柜'),
+      title: Text(switch (_tab) {
+        1 => '收藏统计',
+        2 => '设置',
+        _ => '收藏柜',
+      }),
       actions: [
         IconButton(
           tooltip: '退出登录',
-          icon: const Icon(Icons.logout_rounded),
-          onPressed: () async {
-            try {
-              await _auth.signOut();
-            } catch (error) {
-              if (context.mounted) {
-                ScaffoldMessenger.of(context)
-                    .showSnackBar(SnackBar(content: Text('退出失败：$error')));
-              }
-            }
-          },
+          icon: _signingOut
+              ? const SizedBox(
+                  width: 20,
+                  height: 20,
+                  child: CircularProgressIndicator(strokeWidth: 2),
+                )
+              : const Icon(Icons.logout_rounded),
+          onPressed: _signingOut
+              ? null
+              : () async {
+                  setState(() => _signingOut = true);
+                  try {
+                    await _auth.signOut();
+                  } catch (error) {
+                    if (context.mounted) {
+                      ScaffoldMessenger.of(context)
+                          .showSnackBar(SnackBar(content: Text('退出失败：$error')));
+                    }
+                  } finally {
+                    if (mounted) setState(() => _signingOut = false);
+                  }
+                },
         ),
       ],
     ),
@@ -193,7 +212,7 @@ class _CollectionScreenState extends State<CollectionScreen> {
             );
           }
           final data = snapshot.data!;
-          return switch (_tab) {
+          final page = switch (_tab) {
             1 => StatsScreen(items: data.items),
             2 => SettingsScreen(
               repository: _preferencesRepository,
@@ -203,6 +222,12 @@ class _CollectionScreenState extends State<CollectionScreen> {
             ),
             _ => _home(data.items, data.preferences),
           };
+          return AnimatedSwitcher(
+            duration: MediaQuery.disableAnimationsOf(context)
+                ? Duration.zero
+                : const Duration(milliseconds: 180),
+            child: KeyedSubtree(key: ValueKey(_tab), child: page),
+          );
         },
       ),
     ),
@@ -216,10 +241,11 @@ class _CollectionScreenState extends State<CollectionScreen> {
       ],
     ),
     floatingActionButton: _tab == 0
-        ? FloatingActionButton(
+        ? FloatingActionButton.extended(
             onPressed: _add,
             tooltip: '添加收藏',
-            child: const Icon(Icons.add),
+            icon: const Icon(Icons.add),
+            label: const Text('收藏'),
           )
         : null,
   );
@@ -235,47 +261,72 @@ class _CollectionScreenState extends State<CollectionScreen> {
             : constraints.maxWidth >= 600
             ? 3
             : 2;
+        final cardWidth =
+            (constraints.maxWidth - 40 - (columns - 1) * 12) / columns;
+        final textScale = MediaQuery.textScalerOf(context).scale(14) / 14;
+        final hasPrice =
+            (preferences.showPrice || preferences.showDailyCost) &&
+            all.any((item) => item.price != null);
+        final textHeight =
+            (hasPrice ? 82.0 : 62.0) * textScale.clamp(1, double.infinity);
+        final cardHeight = cardWidth * (hasPrice ? .92 : .82) + textHeight;
         return RefreshIndicator(
           onRefresh: _reload,
           child: CustomScrollView(
+            physics: const AlwaysScrollableScrollPhysics(),
+            keyboardDismissBehavior: ScrollViewKeyboardDismissBehavior.onDrag,
             slivers: [
               if (preferences.wallpaperUrl != null)
                 SliverToBoxAdapter(
-                  child: SizedBox(
-                    height: 135,
-                    child: Stack(
-                      fit: StackFit.expand,
-                      children: [
-                        PrivateCover(
-                          imageUrl: preferences.wallpaperUrl,
-                          images: _images,
-                        ),
-                        const ColoredBox(color: Color(0x55000000)),
-                        const Center(
-                          child: Text(
-                            '我的收藏柜',
-                            style: TextStyle(
-                              color: Colors.white,
-                              fontSize: 28,
-                              fontWeight: FontWeight.bold,
+                  child: Padding(
+                    padding: const EdgeInsets.fromLTRB(20, 8, 20, 0),
+                    child: ClipRRect(
+                      borderRadius: BorderRadius.circular(AppRadius.card),
+                      child: SizedBox(
+                        height: 104,
+                        child: Stack(
+                          fit: StackFit.expand,
+                          children: [
+                            PrivateCover(
+                              imageUrl: preferences.wallpaperUrl,
+                              images: _images,
                             ),
-                          ),
+                            const ColoredBox(color: Color(0x55000000)),
+                            const Center(
+                              child: Text(
+                                '我的收藏柜',
+                                style: TextStyle(
+                                  color: Colors.white,
+                                  fontSize: 24,
+                                  fontWeight: FontWeight.bold,
+                                ),
+                              ),
+                            ),
+                          ],
                         ),
-                      ],
+                      ),
                     ),
                   ),
                 ),
               SliverPadding(
-                padding: const EdgeInsets.fromLTRB(18, 14, 18, 8),
+                padding: const EdgeInsets.fromLTRB(20, 16, 20, 8),
                 sliver: SliverToBoxAdapter(
                   child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
                     children: [
                       TextField(
                         controller: _search,
                         onChanged: (_) => setState(() {}),
-                        decoration: const InputDecoration(
+                        decoration: InputDecoration(
                           prefixIcon: Icon(Icons.search),
                           hintText: '搜索我的收藏',
+                          suffixIcon: _search.text.isEmpty
+                              ? null
+                              : IconButton(
+                                  tooltip: '清除搜索',
+                                  onPressed: () => setState(_search.clear),
+                                  icon: const Icon(Icons.close_rounded),
+                                ),
                         ),
                       ),
                       const SizedBox(height: 8),
@@ -283,6 +334,10 @@ class _CollectionScreenState extends State<CollectionScreen> {
                         children: [
                           Expanded(
                             child: DropdownButton<String?>(
+                              underline: const SizedBox.shrink(),
+                              borderRadius: BorderRadius.circular(
+                                AppRadius.input,
+                              ),
                               isExpanded: true,
                               value: _category,
                               items: [
@@ -293,7 +348,11 @@ class _CollectionScreenState extends State<CollectionScreen> {
                                 ...categories.map(
                                   (v) => DropdownMenuItem<String?>(
                                     value: v,
-                                    child: Text(v),
+                                    child: Text(
+                                      v,
+                                      maxLines: 1,
+                                      overflow: TextOverflow.ellipsis,
+                                    ),
                                   ),
                                 ),
                               ],
@@ -303,6 +362,10 @@ class _CollectionScreenState extends State<CollectionScreen> {
                           const SizedBox(width: 12),
                           Expanded(
                             child: DropdownButton<String>(
+                              underline: const SizedBox.shrink(),
+                              borderRadius: BorderRadius.circular(
+                                AppRadius.input,
+                              ),
                               isExpanded: true,
                               value: _sort,
                               items: const [
@@ -343,7 +406,13 @@ class _CollectionScreenState extends State<CollectionScreen> {
                       ),
                       Align(
                         alignment: Alignment.centerLeft,
-                        child: Text('${items.length} / ${all.length} 件收藏'),
+                        child: Text(
+                          '${items.length} / ${all.length} 件收藏',
+                          style: const TextStyle(
+                            color: AppTheme.muted,
+                            fontSize: 12,
+                          ),
+                        ),
                       ),
                     ],
                   ),
@@ -353,23 +422,39 @@ class _CollectionScreenState extends State<CollectionScreen> {
                 SliverFillRemaining(
                   hasScrollBody: false,
                   child: Center(
-                    child: Text(
-                      all.isEmpty ? '收藏柜还是空的，点击 + 添加第一件收藏' : '没有符合条件的物品',
+                    child: Padding(
+                      padding: const EdgeInsets.all(24),
+                      child: Column(
+                        mainAxisSize: MainAxisSize.min,
+                        children: [
+                          const Icon(
+                            Icons.shelves,
+                            size: 48,
+                            color: AppTheme.muted,
+                          ),
+                          const SizedBox(height: 16),
+                          Text(
+                            all.isEmpty ? '收藏柜还是空的，点击 + 添加第一件收藏' : '没有符合条件的物品',
+                            textAlign: TextAlign.center,
+                          ),
+                        ],
+                      ),
                     ),
                   ),
                 )
               else
                 SliverPadding(
-                  padding: const EdgeInsets.fromLTRB(16, 6, 16, 90),
+                  padding: const EdgeInsets.fromLTRB(20, 8, 20, 96),
                   sliver: SliverGrid.builder(
                     itemCount: items.length,
                     gridDelegate: SliverGridDelegateWithFixedCrossAxisCount(
                       crossAxisCount: columns,
-                      mainAxisSpacing: 14,
-                      crossAxisSpacing: 14,
-                      childAspectRatio: .68,
+                      mainAxisSpacing: AppSpacing.lg,
+                      crossAxisSpacing: AppSpacing.md,
+                      mainAxisExtent: cardHeight,
                     ),
                     itemBuilder: (context, index) => CollectionCard(
+                      key: ValueKey(items[index].id),
                       item: items[index],
                       images: _images,
                       preferences: preferences,

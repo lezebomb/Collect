@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
 
 import '../services/auth_service.dart';
+import '../widgets/loading_overlay.dart';
 
 class PasswordRecoveryScreen extends StatefulWidget {
   const PasswordRecoveryScreen({
@@ -49,8 +50,15 @@ class _PasswordRecoveryScreenState extends State<PasswordRecoveryScreen> {
   }
 
   Future<void> _cancel() async {
-    await widget.auth.signOut();
-    if (mounted) widget.onComplete();
+    setState(() => _busy = true);
+    try {
+      await widget.auth.signOut();
+      if (mounted) widget.onComplete();
+    } catch (_) {
+      if (mounted) setState(() => _error = '暂时无法退出，请稍后重试。');
+    } finally {
+      if (mounted) setState(() => _busy = false);
+    }
   }
 
   @override
@@ -97,7 +105,10 @@ class _PasswordRecoveryScreenState extends State<PasswordRecoveryScreen> {
                 const SizedBox(height: 20),
                 FilledButton(
                   onPressed: _busy ? null : _save,
-                  child: Text(_busy ? '正在保存…' : '保存新密码'),
+                  child: LoadingButtonLabel(
+                    loading: _busy,
+                    label: _busy ? '请稍候…' : '保存新密码',
+                  ),
                 ),
                 TextButton(
                   onPressed: _busy ? null : _cancel,

@@ -34,6 +34,10 @@ class _PrivateCoverState extends State<PrivateCover> {
   Widget build(BuildContext context) => FutureBuilder<String?>(
     future: _signedUrl,
     builder: (context, snapshot) {
+      if (snapshot.connectionState != ConnectionState.done &&
+          widget.imageUrl != null) {
+        return const _CoverPlaceholder(loading: true);
+      }
       final url = snapshot.data;
       if (url == null) return const _CoverPlaceholder();
       return Image.network(
@@ -41,6 +45,8 @@ class _PrivateCoverState extends State<PrivateCover> {
         fit: widget.fit,
         width: double.infinity,
         height: double.infinity,
+        loadingBuilder: (context, child, progress) =>
+            progress == null ? child : const _CoverPlaceholder(loading: true),
         errorBuilder: (context, error, stackTrace) => const _CoverPlaceholder(),
       );
     },
@@ -48,16 +54,23 @@ class _PrivateCoverState extends State<PrivateCover> {
 }
 
 class _CoverPlaceholder extends StatelessWidget {
-  const _CoverPlaceholder();
+  const _CoverPlaceholder({this.loading = false});
+  final bool loading;
 
   @override
   Widget build(BuildContext context) => Container(
     color: const Color(0xFFE5EAE4),
     alignment: Alignment.center,
-    child: const Icon(
-      Icons.auto_awesome_mosaic_rounded,
-      color: AppTheme.muted,
-      size: 42,
-    ),
+    child: loading
+        ? const SizedBox(
+            width: 24,
+            height: 24,
+            child: CircularProgressIndicator(strokeWidth: 2),
+          )
+        : const Icon(
+            Icons.auto_awesome_mosaic_rounded,
+            color: AppTheme.muted,
+            size: 42,
+          ),
   );
 }

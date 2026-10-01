@@ -2,7 +2,10 @@ import 'package:flutter/material.dart';
 
 import '../core/collection_options.dart';
 import '../core/collection_stats.dart';
+import '../core/app_theme.dart';
+import '../core/app_ui.dart';
 import '../models/collection_item.dart';
+import '../widgets/section_card.dart';
 
 class StatsScreen extends StatefulWidget {
   const StatsScreen({super.key, required this.items});
@@ -35,99 +38,128 @@ class _StatsScreenState extends State<StatsScreen> {
       return true;
     }).toList();
     final stats = CollectionStats(filtered);
-    return ListView(
-      padding: const EdgeInsets.fromLTRB(18, 18, 18, 100),
-      children: [
-        Text(
-          '统计',
-          style: Theme.of(context).textTheme.headlineMedium
-              ?.copyWith(fontWeight: FontWeight.bold),
-        ),
-        const SizedBox(height: 16),
-        Wrap(
-          spacing: 10,
-          runSpacing: 10,
+    return Center(
+      child: ConstrainedBox(
+        constraints: const BoxConstraints(maxWidth: 760),
+        child: ListView(
+          padding: AppSpacing.page,
           children: [
-            DropdownButton<String?>(
-              value: _category,
-              hint: const Text('全部分类'),
-              items: [
-                const DropdownMenuItem<String?>(
-                  value: null,
-                  child: Text('全部分类'),
+            Text(
+              '收藏的足迹',
+              style: Theme.of(context).textTheme.headlineMedium
+                  ?.copyWith(fontWeight: FontWeight.bold),
+            ),
+            const SizedBox(height: AppSpacing.xs),
+            Text('每一件喜欢，都有迹可循。', style: Theme.of(context).textTheme.bodySmall),
+            const SizedBox(height: 16),
+            Row(
+              children: [
+                Expanded(
+                  child: DropdownButton<String?>(
+                    isExpanded: true,
+                    underline: const SizedBox.shrink(),
+                    borderRadius: BorderRadius.circular(AppRadius.input),
+                    value: _category,
+                    hint: const Text('全部分类'),
+                    items: [
+                      const DropdownMenuItem<String?>(
+                        value: null,
+                        child: Text('全部分类'),
+                      ),
+                      ...categories.map(
+                        (v) => DropdownMenuItem<String?>(
+                          value: v,
+                          child: Text(
+                            v,
+                            maxLines: 1,
+                            overflow: TextOverflow.ellipsis,
+                          ),
+                        ),
+                      ),
+                    ],
+                    onChanged: (v) => setState(() => _category = v),
+                  ),
                 ),
-                ...categories.map(
-                  (v) => DropdownMenuItem<String?>(value: v, child: Text(v)),
+                const SizedBox(width: AppSpacing.md),
+                Expanded(
+                  child: DropdownButton<int?>(
+                    isExpanded: true,
+                    underline: const SizedBox.shrink(),
+                    borderRadius: BorderRadius.circular(AppRadius.input),
+                    value: _year,
+                    hint: const Text('全部年份'),
+                    items: [
+                      const DropdownMenuItem<int?>(
+                        value: null,
+                        child: Text('全部年份'),
+                      ),
+                      ...years.map(
+                        (v) => DropdownMenuItem<int?>(
+                          value: v,
+                          child: Text('$v 年'),
+                        ),
+                      ),
+                    ],
+                    onChanged: (v) => setState(() => _year = v),
+                  ),
                 ),
               ],
-              onChanged: (v) => setState(() => _category = v),
             ),
-            DropdownButton<int?>(
-              value: _year,
-              hint: const Text('全部年份'),
-              items: [
-                const DropdownMenuItem<int?>(value: null, child: Text('全部年份')),
-                ...years.map(
-                  (v) => DropdownMenuItem<int?>(value: v, child: Text('$v 年')),
+            const SizedBox(height: 16),
+            Row(
+              children: [
+                Expanded(
+                  child: _summary(
+                    context,
+                    '总投入',
+                    money(stats.totalInvestment, 'CNY'),
+                    '${stats.items.length} 件物品',
+                  ),
+                ),
+                const SizedBox(width: 10),
+                Expanded(
+                  child: _summary(
+                    context,
+                    '在手物品',
+                    '${stats.inHand.length}',
+                    '购入金额 ${money(stats.inHandValue, 'CNY')}',
+                  ),
                 ),
               ],
-              onChanged: (v) => setState(() => _year = v),
             ),
-          ],
-        ),
-        const SizedBox(height: 16),
-        Row(
-          children: [
-            Expanded(
-              child: _summary(
-                context,
-                '总投入',
-                money(stats.totalInvestment, 'CNY'),
-                '${stats.items.length} 件物品',
+            const SizedBox(height: 16),
+            _panel(
+              context,
+              '类型占比（按投入）',
+              _bars(
+                stats.categorySpending,
+                stats.totalInvestment,
+                moneyLabels: true,
               ),
             ),
-            const SizedBox(width: 10),
-            Expanded(
-              child: _summary(
-                context,
-                '在手物品',
-                '${stats.inHand.length}',
-                '购入金额 ${money(stats.inHandValue, 'CNY')}',
+            _panel(
+              context,
+              '各类型数量',
+              _bars(
+                stats.categoryCounts.map((k, v) => MapEntry(k, v.toDouble())),
+                stats.items.length.toDouble(),
+                moneyLabels: false,
               ),
             ),
+            _panel(context, '月度消费趋势', _monthly(stats.monthlySpending)),
+            if (_category == null || _category == '游戏')
+              _panel(
+                context,
+                '游戏 · 游玩状态',
+                _bars(
+                  stats.gameStatuses.map((k, v) => MapEntry(k, v.toDouble())),
+                  stats.items.where((item) => item.isGame).length.toDouble(),
+                  moneyLabels: false,
+                ),
+              ),
           ],
         ),
-        const SizedBox(height: 16),
-        _panel(
-          context,
-          '类型占比（按投入）',
-          _bars(
-            stats.categorySpending,
-            stats.totalInvestment,
-            moneyLabels: true,
-          ),
-        ),
-        _panel(
-          context,
-          '各类型数量',
-          _bars(
-            stats.categoryCounts.map((k, v) => MapEntry(k, v.toDouble())),
-            stats.items.length.toDouble(),
-            moneyLabels: false,
-          ),
-        ),
-        _panel(context, '月度消费趋势', _monthly(stats.monthlySpending)),
-        if (_category == null || _category == '游戏')
-          _panel(
-            context,
-            '游戏 · 游玩状态',
-            _bars(
-              stats.gameStatuses.map((k, v) => MapEntry(k, v.toDouble())),
-              stats.items.where((item) => item.isGame).length.toDouble(),
-              moneyLabels: false,
-            ),
-          ),
-      ],
+      ),
     );
   }
 
@@ -138,16 +170,21 @@ class _StatsScreenState extends State<StatsScreen> {
     String detail,
   ) => Card(
     child: Padding(
-      padding: const EdgeInsets.all(15),
+      padding: const EdgeInsets.all(AppSpacing.lg),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          Text(title),
+          Text(
+            title,
+            style: const TextStyle(color: AppTheme.muted, fontSize: 13),
+          ),
           const SizedBox(height: 8),
           FittedBox(
+            fit: BoxFit.scaleDown,
+            alignment: Alignment.centerLeft,
             child: Text(
               value,
-              style: Theme.of(context).textTheme.titleLarge
+              style: Theme.of(context).textTheme.headlineMedium
                   ?.copyWith(fontWeight: FontWeight.bold),
             ),
           ),
@@ -158,23 +195,9 @@ class _StatsScreenState extends State<StatsScreen> {
     ),
   );
 
-  Widget _panel(BuildContext context, String title, Widget child) => Card(
-    margin: const EdgeInsets.only(bottom: 14),
-    child: Padding(
-      padding: const EdgeInsets.all(18),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          Text(
-            title,
-            style: Theme.of(context).textTheme.titleMedium
-                ?.copyWith(fontWeight: FontWeight.bold),
-          ),
-          const SizedBox(height: 16),
-          child,
-        ],
-      ),
-    ),
+  Widget _panel(BuildContext context, String title, Widget child) => Padding(
+    padding: const EdgeInsets.only(bottom: AppSpacing.lg),
+    child: SectionCard(title: title, child: child),
   );
 
   Widget _bars(
@@ -189,24 +212,28 @@ class _StatsScreenState extends State<StatsScreen> {
       children: [
         for (final entry in sorted)
           Padding(
-            padding: const EdgeInsets.only(bottom: 12),
+            padding: const EdgeInsets.only(bottom: AppSpacing.lg),
             child: Column(
               children: [
                 Row(
                   children: [
                     Expanded(child: Text(entry.key)),
-                    Text(
-                      moneyLabels
-                          ? '${money(entry.value, 'CNY')} · ${total == 0 ? 0 : entry.value / total * 100 ~/ 1}%'
-                          : '${entry.value.toInt()}',
+                    Expanded(
+                      child: Text(
+                        moneyLabels
+                            ? '${money(entry.value, 'CNY')} · ${total == 0 ? 0 : entry.value / total * 100 ~/ 1}%'
+                            : '${entry.value.toInt()}',
+                        textAlign: TextAlign.end,
+                        style: Theme.of(context).textTheme.bodySmall,
+                      ),
                     ),
                   ],
                 ),
-                const SizedBox(height: 5),
+                const SizedBox(height: AppSpacing.sm),
                 LinearProgressIndicator(
                   value: total == 0 ? 0 : (entry.value / total).clamp(0, 1),
-                  minHeight: 9,
-                  borderRadius: BorderRadius.circular(9),
+                  minHeight: 8,
+                  borderRadius: BorderRadius.circular(AppRadius.pill),
                 ),
               ],
             ),
@@ -228,24 +255,32 @@ class _StatsScreenState extends State<StatsScreen> {
       children: [
         for (final month in recent)
           Padding(
-            padding: const EdgeInsets.only(bottom: 10),
-            child: Row(
+            padding: const EdgeInsets.only(bottom: AppSpacing.lg),
+            child: Column(
               children: [
-                SizedBox(width: 72, child: Text(month)),
-                Expanded(
-                  child: LinearProgressIndicator(
-                    value: max == 0 ? 0 : values[month]! / max,
-                    minHeight: 10,
-                    borderRadius: BorderRadius.circular(8),
-                  ),
+                Row(
+                  children: [
+                    Expanded(child: Text(month)),
+                    Expanded(
+                      child: Text(
+                        money(values[month]!, 'CNY'),
+                        textAlign: TextAlign.end,
+                        style: Theme.of(context).textTheme.bodySmall,
+                      ),
+                    ),
+                  ],
                 ),
-                const SizedBox(width: 8),
-                SizedBox(
-                  width: 75,
-                  child: Text(
-                    money(values[month]!, 'CNY'),
-                    textAlign: TextAlign.end,
-                  ),
+                const SizedBox(height: AppSpacing.sm),
+                Row(
+                  children: [
+                    Expanded(
+                      child: LinearProgressIndicator(
+                        value: max == 0 ? 0 : values[month]! / max,
+                        minHeight: 8,
+                        borderRadius: BorderRadius.circular(AppRadius.pill),
+                      ),
+                    ),
+                  ],
                 ),
               ],
             ),

@@ -3,6 +3,7 @@ import 'package:supabase_flutter/supabase_flutter.dart';
 
 import '../core/app_theme.dart';
 import '../services/auth_service.dart';
+import '../widgets/loading_overlay.dart';
 
 class AuthScreen extends StatefulWidget {
   const AuthScreen({super.key, required this.auth});
@@ -180,8 +181,9 @@ class _AuthScreenState extends State<AuthScreen> {
                     width: double.infinity,
                     child: FilledButton(
                       onPressed: _busy ? null : _submit,
-                      child: Text(
-                        _busy
+                      child: LoadingButtonLabel(
+                        loading: _busy,
+                        label: _busy
                             ? '请稍候…'
                             : _register
                             ? '注册并开始收藏'
