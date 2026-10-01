@@ -8,6 +8,8 @@ import '../services/cover_image_service.dart';
 class ItemRepository {
   ItemRepository(this.client, this.images);
 
+  static const bulkChunkSize = 100;
+
   final SupabaseClient client;
   final CoverImageService images;
 
@@ -99,6 +101,57 @@ class ItemRepository {
         .eq('id', item.id)
         .eq('user_id', _userId);
     if (item.coverImage != null) await _tryRemove(item.coverImage!);
+  }
+
+  List<String> _bulkIds(List<String> ids) {
+    final unique = ids.toSet().toList();
+    if (unique.length > bulkChunkSize || unique.any((id) => id.isEmpty)) {
+      throw ArgumentError('每次最多处理 $bulkChunkSize 件收藏');
+    }
+    return unique;
+  }
+
+  /// Update only the category, leaving the other collection fields intact.
+  Future<List<CollectionItem>> changeCategory(
+    List<String> ids,
+    String category,
+  ) async {
+    final targets = _bulkIds(ids);
+    if (targets.isEmpty) return [];
+    final name = category.trim();
+    if (name.isEmpty || name.length > 60) throw ArgumentError('分类名称无效');
+    final rows = await client
+        .from('items')
+        .update({
+          'category': name,
+          'updated_at': DateTime.now().toUtc().toIso8601String(),
+        })
+        .eq('user_id', _userId)
+        .inFilter('id', targets)
+        .select();
+    return rows.map(CollectionItem.fromJson).toList();
+  }
+
+  /// Return only confirmed deletions; clean up their current cover objects.
+  Future<Set<String>> deleteMany(List<String> ids) async {
+    final targets = _bulkIds(ids);
+    if (targets.isEmpty) return {};
+    final rows = await client
+        .from('items')
+        .delete()
+        .eq('user_id', _userId)
+        .inFilter('id', targets)
+        .select('id,cover_image');
+    final covers = rows
+        .map((row) => row['cover_image'] as String?)
+        .whereType<String>()
+        .toSet()
+        .toList();
+    // Keep storage cleanup concurrency bounded for larger selections.
+    for (var i = 0; i < covers.length; i += 8) {
+      await Future.wait(covers.skip(i).take(8).map(_tryRemove));
+    }
+    return rows.map((row) => row['id'] as String).toSet();
   }
 
   Future<void> _tryRemove(String url) async {

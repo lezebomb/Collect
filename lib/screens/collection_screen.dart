@@ -39,16 +39,30 @@ const _sortOptions = <String, String>{
 };
 
 class CollectionScreen extends StatefulWidget {
-  const CollectionScreen({super.key});
+  const CollectionScreen({
+    super.key,
+    this.client,
+    this.itemsRepository,
+    this.preferencesRepository,
+    this.images,
+    this.local,
+  });
+  final SupabaseClient? client;
+  final ItemRepository? itemsRepository;
+  final PreferencesRepository? preferencesRepository;
+  final CoverImageService? images;
+  final LocalWorkspaceStore? local;
   @override
   State<CollectionScreen> createState() => _CollectionScreenState();
 }
 
 class _CollectionScreenState extends State<CollectionScreen> {
-  final _client = Supabase.instance.client;
-  late final _images = CoverImageService(_client);
-  late final _itemsRepository = ItemRepository(_client, _images);
-  late final _preferencesRepository = PreferencesRepository(_client, _images);
+  late final _client = widget.client ?? Supabase.instance.client;
+  late final _images = widget.images ?? CoverImageService(_client);
+  late final _itemsRepository =
+      widget.itemsRepository ?? ItemRepository(_client, _images);
+  late final _preferencesRepository =
+      widget.preferencesRepository ?? PreferencesRepository(_client, _images);
   late final _backup = BackupService(
     _client,
     _itemsRepository,
@@ -56,7 +70,7 @@ class _CollectionScreenState extends State<CollectionScreen> {
     _images,
   );
   late final _auth = AuthService(_client);
-  final _local = LocalWorkspaceStore();
+  late final _local = widget.local ?? LocalWorkspaceStore();
   final _statsKey = GlobalKey<StatsScreenState>();
   PriceDisplay _priceDisplay = PriceDisplay.original;
   late Future<_HomeData> _data = _load();
@@ -69,6 +83,12 @@ class _CollectionScreenState extends State<CollectionScreen> {
   bool _signingOut = false;
   bool _confirmingSignOut = false;
   int _loadRevision = 0;
+  bool _selecting = false;
+  final _selectedIds = <String>{};
+  String? _managementMessage;
+  int _managementDone = 0;
+  int _managementTotal = 0;
+  bool get _managing => _managementMessage != null;
 
   Future<_HomeData> _load({bool refresh = false}) async {
     final revision = ++_loadRevision;
@@ -95,6 +115,7 @@ class _CollectionScreenState extends State<CollectionScreen> {
     if (revision == _loadRevision) {
       _current = next;
       _priceDisplay = results[3] as PriceDisplay;
+      _selectedIds.retainAll(next.items.map((item) => item.id));
     }
     return next;
   }
@@ -223,6 +244,271 @@ class _CollectionScreenState extends State<CollectionScreen> {
     return items;
   }
 
+  void _startSelection([CollectionItem? first]) {
+    if (_managing) return;
+    FocusScope.of(context).unfocus();
+    setState(() {
+      _selecting = true;
+      _selectedIds.clear();
+      if (first != null) _selectedIds.add(first.id);
+    });
+  }
+
+  void _finishSelection() {
+    if (_managing) return;
+    setState(() {
+      _selecting = false;
+      _selectedIds.clear();
+    });
+  }
+
+  void _toggleSelection(CollectionItem item) {
+    if (_managing) return;
+    setState(() {
+      if (!_selectedIds.add(item.id)) _selectedIds.remove(item.id);
+    });
+  }
+
+  bool get _allVisibleSelected {
+    final visible = _visible(_current?.items ?? []);
+    return visible.isNotEmpty &&
+        visible.every((item) => _selectedIds.contains(item.id));
+  }
+
+  void _selectAll() {
+    if (_managing) return;
+    final ids = _visible(_current?.items ?? []).map((item) => item.id);
+    final clear = _allVisibleSelected;
+    setState(() {
+      if (clear) {
+        _selectedIds.removeAll(ids);
+      } else {
+        _selectedIds.addAll(ids);
+      }
+    });
+  }
+
+  List<CollectionItem> get _selectedItems => (_current?.items ?? [])
+      .where((item) => _selectedIds.contains(item.id))
+      .toList();
+
+  Future<void> _quickActions(CollectionItem item) async {
+    if (_managing) return;
+    if (_selecting) {
+      _toggleSelection(item);
+      return;
+    }
+    final action = await showSelectionSheet<String>(
+      context: context,
+      title: item.name,
+      builder: (context) => Column(
+        children: [
+          ListTile(
+            shape: RoundedRectangleBorder(
+              borderRadius: BorderRadius.circular(AppRadius.input),
+            ),
+            leading: const Icon(Icons.checklist_rounded),
+            title: const Text('批量管理'),
+            onTap: () => Navigator.pop(context, 'select'),
+          ),
+          ListTile(
+            shape: RoundedRectangleBorder(
+              borderRadius: BorderRadius.circular(AppRadius.input),
+            ),
+            leading: Icon(
+              Icons.delete_outline_rounded,
+              color: Theme.of(context).colorScheme.error,
+            ),
+            title: Text(
+              '删除收藏',
+              style: TextStyle(color: Theme.of(context).colorScheme.error),
+            ),
+            onTap: () => Navigator.pop(context, 'delete'),
+          ),
+        ],
+      ),
+    );
+    if (!mounted) return;
+    if (action == 'select') _startSelection(item);
+    if (action == 'delete') await _deleteTargets([item]);
+  }
+
+  Future<void> _changeSelectedCategory() async {
+    final targets = _selectedItems;
+    if (targets.isEmpty || _managing) return;
+    final categories = _current!.categories;
+    final category = await showSelectionSheet<String>(
+      context: context,
+      title: '修改 ${targets.length} 件藏品的分类',
+      builder: (context) => categories.isEmpty
+          ? const Text('还没有可用分类，请先到设置中添加分类。')
+          : Wrap(
+              spacing: 8,
+              runSpacing: 8,
+              children: [
+                for (final name in categories)
+                  SelectionOption(
+                    label: name,
+                    selected: targets.every((item) => item.category == name),
+                    onTap: () => Navigator.pop(context, name),
+                  ),
+              ],
+            ),
+    );
+    if (category != null && mounted) {
+      await _runManagement(targets, category: category);
+    }
+  }
+
+  Future<void> _deleteTargets(List<CollectionItem> targets) async {
+    if (targets.isEmpty || _managing) return;
+    final confirmed = await confirmAction(
+      context,
+      title: targets.length == 1 ? '删除这件收藏？' : '删除选中的 ${targets.length} 件收藏？',
+      content: targets.length == 1
+          ? '“${targets.single.name}”及它的封面将从收藏柜中移除。'
+          : '${targets.take(3).map((item) => '“${item.name}”').join('、')}${targets.length > 3 ? '等 ${targets.length} 件收藏' : ''}及它们的封面将从收藏柜中移除。',
+      confirm: '删除',
+    );
+    if (confirmed == true && mounted) await _runManagement(targets);
+  }
+
+  void _applyBatch(List<CollectionItem> changed, Set<String> deleted) {
+    final current = _current!;
+    ++_loadRevision;
+    final byId = {for (final item in changed) item.id: item};
+    setState(() {
+      _current = (
+        items: [
+          for (final item in current.items)
+            if (!deleted.contains(item.id)) byId[item.id] ?? item,
+        ],
+        preferences: current.preferences,
+        categories: current.categories,
+      );
+      _data = Future.value(_current!);
+      _selectedIds.removeAll({...byId.keys, ...deleted});
+    });
+  }
+
+  Future<void> _runManagement(
+    List<CollectionItem> targets, {
+    String? category,
+  }) async {
+    if (_managing) return;
+    setState(() {
+      _managementMessage = category == null ? '正在删除收藏，请稍候…' : '正在修改分类，请稍候…';
+      _managementDone = 0;
+      _managementTotal = targets.length;
+    });
+    var succeeded = false;
+    try {
+      for (
+        var offset = 0;
+        offset < targets.length;
+        offset += ItemRepository.bulkChunkSize
+      ) {
+        final chunk = targets
+            .skip(offset)
+            .take(ItemRepository.bulkChunkSize)
+            .toList();
+        final ids = chunk.map((item) => item.id).toList();
+        List<CollectionItem> changed = [];
+        Set<String> deleted = {};
+        if (category == null) {
+          deleted = await _itemsRepository.deleteMany(ids);
+        } else {
+          changed = await _itemsRepository.changeCategory(ids, category);
+        }
+        if (!mounted) return;
+        final confirmed = {...deleted, ...changed.map((item) => item.id)};
+        _applyBatch(changed, deleted);
+        setState(() => _managementDone += confirmed.length);
+        if (confirmed.length != ids.length) {
+          throw StateError('部分收藏未能处理');
+        }
+      }
+      succeeded = true;
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text(
+              category == null
+                  ? '已删除 ${targets.length} 件收藏'
+                  : '已将 ${targets.length} 件收藏移至“$category”',
+            ),
+          ),
+        );
+      }
+    } catch (_) {
+      // A response can fail after a write; reconcile before offering a retry.
+      if (mounted) await _reload();
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text(
+              '已确认完成 $_managementDone / ${targets.length} 件，请检查剩余藏品后重试。',
+            ),
+          ),
+        );
+      }
+    } finally {
+      if (mounted) {
+        setState(() {
+          _managementMessage = null;
+          if (succeeded) {
+            _selecting = false;
+            _selectedIds.clear();
+          }
+        });
+      }
+    }
+  }
+
+  Widget _managementBar() => SafeArea(
+    top: false,
+    child: Padding(
+      padding: const EdgeInsets.fromLTRB(16, 8, 16, 12),
+      child: _managing
+          ? Column(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                const LinearProgressIndicator(minHeight: 3),
+                const SizedBox(height: 8),
+                Text(
+                  '$_managementMessage $_managementDone / $_managementTotal',
+                ),
+              ],
+            )
+          : Row(
+              children: [
+                Expanded(
+                  child: FilledButton.tonalIcon(
+                    onPressed: _selectedIds.isEmpty
+                        ? null
+                        : _changeSelectedCategory,
+                    icon: const Icon(Icons.category_outlined),
+                    label: const Text('修改分类'),
+                  ),
+                ),
+                const SizedBox(width: 12),
+                Expanded(
+                  child: OutlinedButton.icon(
+                    onPressed: _selectedIds.isEmpty
+                        ? null
+                        : () => _deleteTargets(_selectedItems),
+                    style: OutlinedButton.styleFrom(
+                      foregroundColor: Theme.of(context).colorScheme.error,
+                    ),
+                    icon: const Icon(Icons.delete_outline_rounded),
+                    label: const Text('删除'),
+                  ),
+                ),
+              ],
+            ),
+    ),
+  );
+
   Future<void> _chooseSort() async {
     final sort = await showSelectionSheet<String>(
       context: context,
@@ -296,135 +582,175 @@ class _CollectionScreenState extends State<CollectionScreen> {
   }
 
   @override
-  Widget build(BuildContext context) => Scaffold(
-    appBar: AppBar(
-      centerTitle: false,
-      title: Text(switch (_tab) {
-        1 => '收藏统计',
-        2 => '设置',
-        _ => 'Dearshelf',
-      }),
-      actions: [
-        if (_tab == 0) ...[
-          IconButton(
-            tooltip: '搜索收藏',
-            isSelected: _searchExpanded,
-            icon: const Icon(Icons.search_rounded),
-            onPressed: () => setState(() => _searchExpanded = !_searchExpanded),
-          ),
-          IconButton(
-            tooltip: '筛选和排序',
-            icon: const Icon(Icons.filter_list_rounded),
-            onPressed: _chooseSort,
-          ),
-          Padding(
-            padding: const EdgeInsets.only(right: 12),
-            child: IconButton.filled(
-              tooltip: '添加收藏',
-              icon: const Icon(Icons.add_rounded),
-              onPressed: _add,
+  Widget build(BuildContext context) => PopScope(
+    canPop: !_selecting && !_managing,
+    onPopInvokedWithResult: (didPop, result) {
+      if (!didPop && !_managing) _finishSelection();
+    },
+    child: Scaffold(
+      appBar: AppBar(
+        centerTitle: false,
+        leading: _selecting
+            ? IconButton(
+                tooltip: '退出批量管理',
+                onPressed: _managing ? null : _finishSelection,
+                icon: const Icon(Icons.close_rounded),
+              )
+            : null,
+        title: _selecting
+            ? FittedBox(
+                fit: BoxFit.scaleDown,
+                child: Text('已选 ${_selectedIds.length} 件'),
+              )
+            : Text(switch (_tab) {
+                1 => '收藏统计',
+                2 => '设置',
+                _ => 'Dearshelf',
+              }),
+        actions: [
+          if (_selecting)
+            TextButton(
+              onPressed: _managing ? null : _selectAll,
+              child: Text(_allVisibleSelected ? '全不选' : '全选'),
             ),
-          ),
-        ],
-        if (_tab == 1) ...[
-          IconButton(
-            tooltip: '筛选分类',
-            icon: const Icon(Icons.category_outlined),
-            onPressed: () => _statsKey.currentState?.chooseCategory(),
-          ),
-          IconButton(
-            tooltip: '筛选年份',
-            icon: const Icon(Icons.calendar_month_outlined),
-            onPressed: () => _statsKey.currentState?.chooseYear(),
-          ),
-        ],
-        if (_tab == 2)
-          IconButton(
-            tooltip: _signingOut ? '正在退出登录，请稍候...' : '退出登录',
-            onPressed: _signingOut ? null : _signOut,
-            icon: _signingOut
-                ? const SizedBox(
-                    width: 20,
-                    height: 20,
-                    child: CircularProgressIndicator(strokeWidth: 2),
-                  )
-                : const Icon(Icons.logout_rounded),
-          ),
-      ],
-    ),
-    body: SafeArea(
-      child: FutureBuilder<_HomeData>(
-        future: _data,
-        builder: (context, snapshot) {
-          final data = _current ?? snapshot.data;
-          if (data == null) {
-            if (snapshot.hasError) {
-              return Center(
-                child: TextButton(
-                  onPressed: _reload,
-                  child: const Text('数据加载失败，点击重试'),
-                ),
-              );
-            }
-            return const Center(child: CircularProgressIndicator());
-          }
-          final categories = {
-            ...data.categories,
-            ...data.items.map((item) => item.category),
-          }.toList();
-          return IndexedStack(
-            index: _tab,
-            children: [
-              CollectionWall(
-                items: _visible(data.items),
-                total: data.items.length,
-                categories: categories,
-                category: _category,
-                preferences: data.preferences,
-                priceDisplay: _priceDisplay,
-                images: _images,
-                search: _search,
-                searchExpanded: _searchExpanded,
-                onSearch: () => setState(() {}),
-                onCloseSearch: () {
-                  FocusScope.of(context).unfocus();
-                  setState(() {
-                    _search.clear();
-                    _searchExpanded = false;
-                  });
-                },
-                onCategory: (value) => setState(() => _category = value),
-                onOpen: _open,
-                onRefresh: _reload,
+          if (_tab == 0 && !_selecting) ...[
+            IconButton(
+              tooltip: '搜索收藏',
+              isSelected: _searchExpanded,
+              icon: const Icon(Icons.search_rounded),
+              onPressed: _managing
+                  ? null
+                  : () => setState(() => _searchExpanded = !_searchExpanded),
+            ),
+            IconButton(
+              tooltip: '筛选和排序',
+              icon: const Icon(Icons.filter_list_rounded),
+              onPressed: _managing ? null : _chooseSort,
+            ),
+            Padding(
+              padding: const EdgeInsets.only(right: 12),
+              child: IconButton.filled(
+                tooltip: '添加收藏',
+                icon: const Icon(Icons.add_rounded),
+                onPressed: _managing ? null : _add,
               ),
-              StatsScreen(key: _statsKey, items: data.items),
-              SettingsScreen(
-                repository: _preferencesRepository,
-                backup: _backup,
-                images: _images,
-                initialPreferences: data.preferences,
-                initialCategories: data.categories,
-                priceDisplay: _priceDisplay,
-                onPriceDisplayChanged: _setPriceDisplay,
-                onChanged: _settingsChanged,
-                onDataChanged: _reload,
-              ),
-            ],
-          );
-        },
+            ),
+          ],
+          if (_tab == 1) ...[
+            IconButton(
+              tooltip: '筛选分类',
+              icon: const Icon(Icons.category_outlined),
+              onPressed: () => _statsKey.currentState?.chooseCategory(),
+            ),
+            IconButton(
+              tooltip: '筛选年份',
+              icon: const Icon(Icons.calendar_month_outlined),
+              onPressed: () => _statsKey.currentState?.chooseYear(),
+            ),
+          ],
+          if (_tab == 2)
+            IconButton(
+              tooltip: _signingOut ? '正在退出登录，请稍候...' : '退出登录',
+              onPressed: _signingOut ? null : _signOut,
+              icon: _signingOut
+                  ? const SizedBox(
+                      width: 20,
+                      height: 20,
+                      child: CircularProgressIndicator(strokeWidth: 2),
+                    )
+                  : const Icon(Icons.logout_rounded),
+            ),
+        ],
       ),
-    ),
-    bottomNavigationBar: NavigationBar(
-      selectedIndex: _tab,
-      onDestinationSelected: (index) {
-        FocusScope.of(context).unfocus();
-        setState(() => _tab = index);
-      },
-      destinations: const [
-        NavigationDestination(icon: Icon(Icons.shelves), label: '展柜'),
-        NavigationDestination(icon: Icon(Icons.bar_chart_rounded), label: '统计'),
-        NavigationDestination(icon: Icon(Icons.settings_outlined), label: '设置'),
-      ],
+      body: SafeArea(
+        child: FutureBuilder<_HomeData>(
+          future: _data,
+          builder: (context, snapshot) {
+            final data = _current ?? snapshot.data;
+            if (data == null) {
+              if (snapshot.hasError) {
+                return Center(
+                  child: TextButton(
+                    onPressed: _reload,
+                    child: const Text('数据加载失败，点击重试'),
+                  ),
+                );
+              }
+              return const Center(child: CircularProgressIndicator());
+            }
+            final categories = {
+              ...data.categories,
+              ...data.items.map((item) => item.category),
+            }.toList();
+            return IndexedStack(
+              index: _tab,
+              children: [
+                AbsorbPointer(
+                  absorbing: _managing,
+                  child: CollectionWall(
+                    items: _visible(data.items),
+                    total: data.items.length,
+                    categories: categories,
+                    category: _category,
+                    preferences: data.preferences,
+                    priceDisplay: _priceDisplay,
+                    images: _images,
+                    search: _search,
+                    searchExpanded: _searchExpanded,
+                    onSearch: () => setState(() {}),
+                    onCloseSearch: () {
+                      FocusScope.of(context).unfocus();
+                      setState(() {
+                        _search.clear();
+                        _searchExpanded = false;
+                      });
+                    },
+                    onCategory: (value) => setState(() => _category = value),
+                    onOpen: _selecting ? _toggleSelection : _open,
+                    onLongPress: _quickActions,
+                    onManage: _startSelection,
+                    selectionMode: _selecting,
+                    selectedIds: _selectedIds,
+                    onRefresh: _reload,
+                  ),
+                ),
+                StatsScreen(key: _statsKey, items: data.items),
+                SettingsScreen(
+                  repository: _preferencesRepository,
+                  backup: _backup,
+                  images: _images,
+                  initialPreferences: data.preferences,
+                  initialCategories: data.categories,
+                  priceDisplay: _priceDisplay,
+                  onPriceDisplayChanged: _setPriceDisplay,
+                  onChanged: _settingsChanged,
+                  onDataChanged: _reload,
+                ),
+              ],
+            );
+          },
+        ),
+      ),
+      bottomNavigationBar: _selecting || _managing
+          ? _managementBar()
+          : NavigationBar(
+              selectedIndex: _tab,
+              onDestinationSelected: (index) {
+                FocusScope.of(context).unfocus();
+                setState(() => _tab = index);
+              },
+              destinations: const [
+                NavigationDestination(icon: Icon(Icons.shelves), label: '展柜'),
+                NavigationDestination(
+                  icon: Icon(Icons.bar_chart_rounded),
+                  label: '统计',
+                ),
+                NavigationDestination(
+                  icon: Icon(Icons.settings_outlined),
+                  label: '设置',
+                ),
+              ],
+            ),
     ),
   );
 }

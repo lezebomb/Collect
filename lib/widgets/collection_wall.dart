@@ -27,6 +27,10 @@ class CollectionWall extends StatelessWidget {
     required this.onOpen,
     required this.onRefresh,
     this.priceDisplay = PriceDisplay.original,
+    this.onLongPress,
+    this.onManage,
+    this.selectionMode = false,
+    this.selectedIds = const {},
   });
   final List<CollectionItem> items;
   final int total;
@@ -42,6 +46,10 @@ class CollectionWall extends StatelessWidget {
   final ValueChanged<String?> onCategory;
   final ValueChanged<CollectionItem> onOpen;
   final Future<void> Function() onRefresh;
+  final ValueChanged<CollectionItem>? onLongPress;
+  final VoidCallback? onManage;
+  final bool selectionMode;
+  final Set<String> selectedIds;
 
   @override
   Widget build(BuildContext context) => LayoutBuilder(
@@ -60,7 +68,7 @@ class CollectionWall extends StatelessWidget {
           (preferences.showPrice || preferences.showDailyCost) &&
           items.any((i) => i.price != null);
       final textHeight = (price ? 82.0 : 66.0) * scale;
-      final headerHeight = 76 + (searchExpanded ? 64 : 0);
+      final headerHeight = selectionMode ? 40 : 86 + (searchExpanded ? 64 : 0);
       // Fit three rows when practical; large accessibility text keeps enough cover space.
       final desired = (constraints.maxHeight - headerHeight - 16 - 16) / 3;
       final cardHeight = math.max(
@@ -74,7 +82,7 @@ class CollectionWall extends StatelessWidget {
           physics: const AlwaysScrollableScrollPhysics(),
           keyboardDismissBehavior: ScrollViewKeyboardDismissBehavior.onDrag,
           slivers: [
-            if (searchExpanded)
+            if (searchExpanded && !selectionMode)
               SliverToBoxAdapter(
                 child: Padding(
                   padding: const EdgeInsets.fromLTRB(16, 4, 16, 8),
@@ -95,34 +103,58 @@ class CollectionWall extends StatelessWidget {
                   ),
                 ),
               ),
-            SliverToBoxAdapter(
-              child: SizedBox(
-                height: 48 + (scale - 1) * 13,
-                child: ListView.separated(
-                  scrollDirection: Axis.horizontal,
-                  padding: const EdgeInsets.symmetric(
-                    horizontal: 16,
-                    vertical: 6,
-                  ),
-                  itemCount: categories.length + 1,
-                  separatorBuilder: (_, index) => const SizedBox(width: 8),
-                  itemBuilder: (_, index) => CategoryChip(
-                    label: index == 0 ? '全部' : categories[index - 1],
-                    selected: index == 0
-                        ? category == null
-                        : category == categories[index - 1],
-                    onTap: () =>
-                        onCategory(index == 0 ? null : categories[index - 1]),
+            if (!selectionMode)
+              SliverToBoxAdapter(
+                child: SizedBox(
+                  height: 48 + (scale - 1) * 13,
+                  child: ListView.separated(
+                    scrollDirection: Axis.horizontal,
+                    padding: const EdgeInsets.symmetric(
+                      horizontal: 16,
+                      vertical: 6,
+                    ),
+                    itemCount: categories.length + 1,
+                    separatorBuilder: (_, index) => const SizedBox(width: 8),
+                    itemBuilder: (_, index) => CategoryChip(
+                      label: index == 0 ? '全部' : categories[index - 1],
+                      selected: index == 0
+                          ? category == null
+                          : category == categories[index - 1],
+                      onTap: () =>
+                          onCategory(index == 0 ? null : categories[index - 1]),
+                    ),
                   ),
                 ),
               ),
-            ),
             SliverToBoxAdapter(
               child: Padding(
                 padding: const EdgeInsets.fromLTRB(18, 2, 18, 8),
-                child: Text(
-                  '${items.length} / $total 件收藏',
-                  style: const TextStyle(fontSize: 12, color: AppTheme.muted),
+                child: Row(
+                  children: [
+                    Expanded(
+                      child: Text(
+                        selectionMode
+                            ? '当前列表 ${items.length} 件 · 点选藏品'
+                            : '${items.length} / $total 件收藏',
+                        style: const TextStyle(
+                          fontSize: 12,
+                          color: AppTheme.muted,
+                        ),
+                      ),
+                    ),
+                    if (!selectionMode && onManage != null && items.isNotEmpty)
+                      TextButton.icon(
+                        onPressed: onManage,
+                        icon: const Icon(Icons.checklist_rounded, size: 16),
+                        label: const Text('批量管理'),
+                        style: TextButton.styleFrom(
+                          textStyle: const TextStyle(fontSize: 12),
+                          minimumSize: const Size(0, 32),
+                          padding: const EdgeInsets.symmetric(horizontal: 8),
+                          tapTargetSize: MaterialTapTargetSize.shrinkWrap,
+                        ),
+                      ),
+                  ],
                 ),
               ),
             ),
@@ -157,6 +189,11 @@ class CollectionWall extends StatelessWidget {
                     preferences: preferences,
                     priceDisplay: priceDisplay,
                     onTap: () => onOpen(items[index]),
+                    onLongPress: onLongPress == null
+                        ? null
+                        : () => onLongPress!(items[index]),
+                    selectionMode: selectionMode,
+                    selected: selectedIds.contains(items[index].id),
                   ),
                 ),
               ),
