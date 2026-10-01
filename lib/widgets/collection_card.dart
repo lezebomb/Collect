@@ -7,6 +7,7 @@ import '../models/user_preferences.dart';
 import '../core/collection_options.dart';
 import '../services/cover_image_service.dart';
 import 'private_cover.dart';
+import 'adaptive_card_text.dart';
 
 class CollectionCard extends StatelessWidget {
   const CollectionCard({
@@ -50,8 +51,8 @@ class CollectionCard extends StatelessWidget {
                       top: 9,
                       child: Container(
                         padding: const EdgeInsets.symmetric(
-                          horizontal: 8,
-                          vertical: 4,
+                          horizontal: 6,
+                          vertical: 2,
                         ),
                         decoration: BoxDecoration(
                           color: Colors.white.withValues(alpha: .9),
@@ -70,56 +71,51 @@ class CollectionCard extends StatelessWidget {
               ),
             ),
             Padding(
-              padding: const EdgeInsets.fromLTRB(12, 10, 12, 10),
+              padding: const EdgeInsets.fromLTRB(9, 6, 9, 6),
               child: Column(
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
-                  Text(
+                  AdaptiveCardText(
                     item.name,
-                    maxLines: 1,
-                    overflow: TextOverflow.ellipsis,
                     style: const TextStyle(
                       color: AppTheme.ink,
                       fontSize: 14,
+                      height: 1.15,
                       fontWeight: FontWeight.w700,
                     ),
                   ),
-                  const SizedBox(height: 4),
-                  Text(
-                    item.category,
-                    maxLines: 1,
-                    overflow: TextOverflow.ellipsis,
-                    style: const TextStyle(color: AppTheme.muted, fontSize: 12),
+                  const SizedBox(height: 2),
+                  FittedBox(
+                    fit: BoxFit.scaleDown,
+                    alignment: Alignment.centerLeft,
+                    child: Text(
+                      item.category,
+                      style: const TextStyle(
+                        color: AppTheme.muted,
+                        fontSize: 11,
+                        height: 1.25,
+                      ),
+                    ),
                   ),
                   if ((preferences.showPrice || preferences.showDailyCost) &&
                       item.price != null) ...[
-                    const SizedBox(height: 5),
-                    Row(
-                      children: [
-                        if (preferences.showPrice)
-                          Expanded(
-                            child: Text(
-                              money(item.price!, item.currency),
-                              maxLines: 1,
-                              overflow: TextOverflow.ellipsis,
-                              style: const TextStyle(
-                                fontWeight: FontWeight.w700,
-                              ),
-                            ),
-                          ),
-                        if (preferences.showDailyCost)
-                          Flexible(
-                            child: Text(
-                              '${money(item.price! / (item.ownedDays == 0 ? 1 : item.ownedDays), item.currency)}/天',
-                              maxLines: 1,
-                              overflow: TextOverflow.ellipsis,
-                              style: const TextStyle(
-                                fontSize: 11,
-                                color: AppTheme.muted,
-                              ),
-                            ),
-                          ),
-                      ],
+                    const SizedBox(height: 2),
+                    FittedBox(
+                      fit: BoxFit.scaleDown,
+                      alignment: Alignment.centerLeft,
+                      child: Text(
+                        [
+                          if (preferences.showPrice)
+                            money(item.price!, item.currency),
+                          if (preferences.showDailyCost)
+                            '${money(item.price! / (item.ownedDays == 0 ? 1 : item.ownedDays), item.currency)}/天',
+                        ].join(' · '),
+                        style: const TextStyle(
+                          fontSize: 11,
+                          height: 1.25,
+                          color: AppTheme.muted,
+                        ),
+                      ),
                     ),
                   ],
                 ],

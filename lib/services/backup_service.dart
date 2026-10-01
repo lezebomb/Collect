@@ -22,9 +22,7 @@ class BackupService {
 
   Future<Uri?> export() async {
     final records = await items.list();
-    final categories = await preferences.categories(
-      itemCategories: records.map((item) => item.category).toList(),
-    );
+    final categories = await preferences.categories();
     final prefs = await preferences.load();
     final files = <String, Uint8List>{};
     final payloadItems = <Map<String, dynamic>>[];

@@ -6,6 +6,7 @@ import '../core/app_theme.dart';
 import '../core/app_ui.dart';
 import '../models/collection_item.dart';
 import '../widgets/section_card.dart';
+import '../widgets/rounded_choice_field.dart';
 
 class StatsScreen extends StatefulWidget {
   const StatsScreen({super.key, required this.items});
@@ -55,52 +56,24 @@ class _StatsScreenState extends State<StatsScreen> {
             Row(
               children: [
                 Expanded(
-                  child: DropdownButton<String?>(
-                    isExpanded: true,
-                    underline: const SizedBox.shrink(),
-                    borderRadius: BorderRadius.circular(AppRadius.input),
-                    value: _category,
-                    hint: const Text('全部分类'),
-                    items: [
-                      const DropdownMenuItem<String?>(
-                        value: null,
-                        child: Text('全部分类'),
-                      ),
-                      ...categories.map(
-                        (v) => DropdownMenuItem<String?>(
-                          value: v,
-                          child: Text(
-                            v,
-                            maxLines: 1,
-                            overflow: TextOverflow.ellipsis,
-                          ),
-                        ),
-                      ),
-                    ],
-                    onChanged: (v) => setState(() => _category = v),
+                  child: RoundedChoiceField(
+                    label: '分类',
+                    value: _category ?? '',
+                    values: ['', ...categories],
+                    optionLabel: (v) => v.isEmpty ? '全部分类' : v,
+                    onChanged: (v) =>
+                        setState(() => _category = v == '' ? null : v),
                   ),
                 ),
                 const SizedBox(width: AppSpacing.md),
                 Expanded(
-                  child: DropdownButton<int?>(
-                    isExpanded: true,
-                    underline: const SizedBox.shrink(),
-                    borderRadius: BorderRadius.circular(AppRadius.input),
-                    value: _year,
-                    hint: const Text('全部年份'),
-                    items: [
-                      const DropdownMenuItem<int?>(
-                        value: null,
-                        child: Text('全部年份'),
-                      ),
-                      ...years.map(
-                        (v) => DropdownMenuItem<int?>(
-                          value: v,
-                          child: Text('$v 年'),
-                        ),
-                      ),
-                    ],
-                    onChanged: (v) => setState(() => _year = v),
+                  child: RoundedChoiceField(
+                    label: '年份',
+                    value: _year?.toString() ?? '',
+                    values: ['', ...years.map((v) => '$v')],
+                    optionLabel: (v) => v.isEmpty ? '全部年份' : '$v 年',
+                    onChanged: (v) =>
+                        setState(() => _year = int.tryParse(v ?? '')),
                   ),
                 ),
               ],

@@ -27,31 +27,75 @@ class ItemImageSection extends StatelessWidget {
   final VoidCallback onCamera;
   final VoidCallback onRemove;
 
+  Future<void> _chooseCover(BuildContext context) async {
+    final camera = await showModalBottomSheet<bool>(
+      context: context,
+      showDragHandle: true,
+      builder: (context) => SafeArea(
+        child: Padding(
+          padding: const EdgeInsets.fromLTRB(16, 0, 16, 20),
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              Text('选择封面', style: Theme.of(context).textTheme.titleLarge),
+              const SizedBox(height: 12),
+              ListTile(
+                shape: RoundedRectangleBorder(
+                  borderRadius: BorderRadius.circular(AppRadius.input),
+                ),
+                leading: const Icon(Icons.photo_library_outlined),
+                title: const Text('从相册选择'),
+                onTap: () => Navigator.pop(context, false),
+              ),
+              ListTile(
+                shape: RoundedRectangleBorder(
+                  borderRadius: BorderRadius.circular(AppRadius.input),
+                ),
+                leading: const Icon(Icons.camera_alt_outlined),
+                title: const Text('拍照识别'),
+                onTap: () => Navigator.pop(context, true),
+              ),
+            ],
+          ),
+        ),
+      ),
+    );
+    if (camera != null) (camera ? onCamera : onGallery)();
+  }
+
   @override
   Widget build(BuildContext context) => Column(
     children: [
-      ClipRRect(
-        borderRadius: BorderRadius.circular(AppRadius.card),
-        child: AspectRatio(
-          aspectRatio: 1.7,
-          child: preview != null
-              ? ColoredBox(
-                  color: const Color(0xFFEFF1EC),
-                  child: Image.memory(preview!, fit: BoxFit.contain),
-                )
-              : imageUrl != null
-              ? PrivateCover(imageUrl: imageUrl, images: images)
-              : const ColoredBox(
-                  color: Color(0xFFE5EAE4),
-                  child: Column(
-                    mainAxisAlignment: MainAxisAlignment.center,
-                    children: [
-                      Icon(Icons.add_photo_alternate_outlined, size: 40),
-                      SizedBox(height: AppSpacing.sm),
-                      Text('为收藏选一张封面'),
-                    ],
-                  ),
-                ),
+      Semantics(
+        button: true,
+        label: '选择封面',
+        child: Material(
+          borderRadius: BorderRadius.circular(AppRadius.card),
+          clipBehavior: Clip.antiAlias,
+          child: InkWell(
+            onTap: busy ? null : () => _chooseCover(context),
+            child: AspectRatio(
+              aspectRatio: 1.7,
+              child: preview != null
+                  ? ColoredBox(
+                      color: const Color(0xFFEFF1EC),
+                      child: Image.memory(preview!, fit: BoxFit.contain),
+                    )
+                  : imageUrl != null
+                  ? PrivateCover(imageUrl: imageUrl, images: images)
+                  : const ColoredBox(
+                      color: Color(0xFFE5EAE4),
+                      child: Column(
+                        mainAxisAlignment: MainAxisAlignment.center,
+                        children: [
+                          Icon(Icons.add_photo_alternate_outlined, size: 40),
+                          SizedBox(height: AppSpacing.sm),
+                          Text('为收藏选一张封面'),
+                        ],
+                      ),
+                    ),
+            ),
+          ),
         ),
       ),
       const SizedBox(height: AppSpacing.sm),

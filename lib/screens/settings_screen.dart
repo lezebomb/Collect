@@ -1,7 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:image_picker/image_picker.dart';
 
-import '../core/collection_options.dart';
 import '../core/app_ui.dart';
 import '../models/user_preferences.dart';
 import '../repositories/preferences_repository.dart';
@@ -10,6 +9,7 @@ import '../services/cover_image_service.dart';
 import '../widgets/private_cover.dart';
 import '../widgets/section_card.dart';
 import '../widgets/loading_overlay.dart';
+import '../widgets/category_chip.dart';
 
 class SettingsScreen extends StatefulWidget {
   const SettingsScreen({
@@ -18,45 +18,54 @@ class SettingsScreen extends StatefulWidget {
     required this.backup,
     required this.images,
     required this.onChanged,
+    required this.onDataChanged,
+    required this.initialPreferences,
+    required this.initialCategories,
   });
   final PreferencesRepository repository;
   final BackupService backup;
   final CoverImageService images;
-  final VoidCallback onChanged;
+  final void Function(UserPreferences, List<String>) onChanged;
+  final VoidCallback onDataChanged;
+  final UserPreferences initialPreferences;
+  final List<String> initialCategories;
 
   @override
   State<SettingsScreen> createState() => _SettingsScreenState();
 }
 
 class _SettingsScreenState extends State<SettingsScreen> {
-  UserPreferences? _prefs;
-  List<String> _categories = [];
+  late UserPreferences _prefs = widget.initialPreferences;
+  late UserPreferences _confirmedPrefs = _prefs;
+  late List<String> _categories = List.of(widget.initialCategories);
   bool _busy = false;
-  bool _loadFailed = false;
+  bool _savingPrefs = false;
+  final _pendingCategories = <String>{};
+  bool get _heavyDisabled =>
+      _busy || _savingPrefs || _pendingCategories.isNotEmpty;
 
   @override
-  void initState() {
-    super.initState();
-    _load();
+  void didUpdateWidget(covariant SettingsScreen oldWidget) {
+    super.didUpdateWidget(oldWidget);
+    if (!_busy && !_savingPrefs && _pendingCategories.isEmpty) {
+      _prefs = _confirmedPrefs = widget.initialPreferences;
+      _categories = List.of(widget.initialCategories);
+    }
   }
 
   Future<void> _load() async {
-    if (mounted) setState(() => _loadFailed = false);
-    try {
-      final prefs = await widget.repository.load();
-      final categories = await widget.repository.categories();
-      if (mounted) {
-        setState(() {
-          _prefs = prefs;
-          _categories = categories;
-        });
-      }
-    } catch (error) {
-      if (mounted) {
-        setState(() => _loadFailed = true);
-        _message('设置加载失败：$error');
-      }
+    final prefs = await widget.repository.load();
+    final categories = await widget.repository.categories();
+    if (mounted) {
+      setState(() {
+        _prefs = _confirmedPrefs = prefs;
+        _categories = categories;
+      });
     }
+  }
+
+  void _notify() {
+    if (mounted) widget.onChanged(_prefs, List.of(_categories));
   }
 
   void _message(String value) =>
@@ -64,15 +73,31 @@ class _SettingsScreenState extends State<SettingsScreen> {
           .showSnackBar(SnackBar(content: Text(value)));
 
   Future<void> _save(UserPreferences next) async {
-    setState(() => _busy = true);
+    setState(() => _prefs = next);
+    _notify();
+    if (_savingPrefs) return;
+    setState(() => _savingPrefs = true);
     try {
-      final saved = await widget.repository.save(next);
-      if (mounted) setState(() => _prefs = saved);
-      widget.onChanged();
+      // Serialize requests and coalesce rapid toggles so older saves cannot win.
+      while (mounted) {
+        final requested = _prefs;
+        final saved = await widget.repository.save(requested);
+        _confirmedPrefs = saved;
+        if (!mounted) return;
+        if (identical(_prefs, requested)) {
+          setState(() => _prefs = saved);
+          _notify();
+          break;
+        }
+      }
     } catch (error) {
-      if (mounted) _message('保存设置失败：$error');
+      if (mounted) {
+        setState(() => _prefs = _confirmedPrefs);
+        _notify();
+        _message('保存设置失败，已恢复原设置：$error');
+      }
     } finally {
-      if (mounted) setState(() => _busy = false);
+      if (mounted) setState(() => _savingPrefs = false);
     }
   }
 
@@ -88,9 +113,9 @@ class _SettingsScreenState extends State<SettingsScreen> {
     }
     setState(() => _busy = true);
     try {
-      final saved = await widget.repository.setWallpaper(_prefs!, file);
-      if (mounted) setState(() => _prefs = saved);
-      widget.onChanged();
+      final saved = await widget.repository.setWallpaper(_prefs, file);
+      if (mounted) setState(() => _prefs = _confirmedPrefs = saved);
+      _notify();
     } catch (error) {
       if (mounted) _message('设置壁纸失败：$error');
     } finally {
@@ -123,28 +148,47 @@ class _SettingsScreenState extends State<SettingsScreen> {
     );
     if (value == null || value.isEmpty) return;
     if (!mounted) return;
-    setState(() => _busy = true);
+    if (_categories.contains(value) || _pendingCategories.contains(value)) {
+      return;
+    }
+    setState(() {
+      _pendingCategories.add(value);
+      _categories = [..._categories, value];
+    });
+    _notify();
     try {
       await widget.repository.addCategory(value);
-      await _load();
-      widget.onChanged();
     } catch (error) {
-      if (mounted) _message('添加分类失败：$error');
+      if (mounted) {
+        setState(() => _categories.remove(value));
+        _notify();
+        _message('添加分类失败：$error');
+      }
     } finally {
-      if (mounted) setState(() => _busy = false);
+      if (mounted) setState(() => _pendingCategories.remove(value));
     }
   }
 
   Future<void> _removeCategory(String value) async {
-    setState(() => _busy = true);
+    if (_pendingCategories.contains(value)) return;
+    final index = _categories.indexOf(value);
+    setState(() {
+      _pendingCategories.add(value);
+      _categories.remove(value);
+    });
+    _notify();
     try {
       await widget.repository.removeCategory(value);
-      await _load();
-      widget.onChanged();
     } catch (error) {
-      if (mounted) _message('删除分类失败：$error');
+      if (mounted) {
+        setState(
+          () => _categories.insert(index.clamp(0, _categories.length), value),
+        );
+        _notify();
+        _message('删除分类失败，已恢复分类：$error');
+      }
     } finally {
-      if (mounted) setState(() => _busy = false);
+      if (mounted) setState(() => _pendingCategories.remove(value));
     }
   }
 
@@ -185,7 +229,8 @@ class _SettingsScreenState extends State<SettingsScreen> {
       if (count != null && mounted) {
         _message('已导入 $count 件收藏');
         await _load();
-        widget.onChanged();
+        _notify();
+        widget.onDataChanged();
       }
     } catch (error) {
       if (mounted) _message('导入失败：$error');
@@ -197,13 +242,6 @@ class _SettingsScreenState extends State<SettingsScreen> {
   @override
   Widget build(BuildContext context) {
     final prefs = _prefs;
-    if (prefs == null) {
-      return Center(
-        child: _loadFailed
-            ? TextButton(onPressed: _load, child: const Text('设置加载失败，点击重试'))
-            : const CircularProgressIndicator(),
-      );
-    }
     return LoadingOverlay(
       loading: _busy,
       message: '正在更新，请稍候…',
@@ -231,6 +269,11 @@ class _SettingsScreenState extends State<SettingsScreen> {
                           ? null
                           : (v) => _save(prefs.copyWith(showPrice: v)),
                     ),
+                    if (_savingPrefs)
+                      const Padding(
+                        padding: EdgeInsets.symmetric(horizontal: 16),
+                        child: LinearProgressIndicator(minHeight: 2),
+                      ),
                     SwitchListTile(
                       title: const Text('展示已拥有天数'),
                       value: prefs.showOwnedDays,
@@ -270,13 +313,17 @@ class _SettingsScreenState extends State<SettingsScreen> {
                       spacing: 8,
                       children: [
                         OutlinedButton.icon(
-                          onPressed: _busy ? null : () => _wallpaper(false),
+                          onPressed: _heavyDisabled
+                              ? null
+                              : () => _wallpaper(false),
                           icon: const Icon(Icons.wallpaper),
                           label: const Text('添加或更换壁纸'),
                         ),
                         if (prefs.wallpaperUrl != null)
                           TextButton(
-                            onPressed: _busy ? null : () => _wallpaper(true),
+                            onPressed: _heavyDisabled
+                                ? null
+                                : () => _wallpaper(true),
                             child: const Text('移除'),
                           ),
                       ],
@@ -293,20 +340,33 @@ class _SettingsScreenState extends State<SettingsScreen> {
                   onPressed: _busy ? null : _newCategory,
                   icon: const Icon(Icons.add),
                 ),
-                child: Wrap(
-                  spacing: 8,
-                  runSpacing: 8,
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
-                    for (final category in _categories)
-                      if (collectionCategories.contains(category))
-                        Chip(label: Text(category))
-                      else
-                        InputChip(
-                          label: Text(category),
-                          onDeleted: _busy
-                              ? null
-                              : () => _removeCategory(category),
-                        ),
+                    Wrap(
+                      spacing: 8,
+                      runSpacing: 8,
+                      children: [
+                        for (final category in _categories)
+                          CategoryChip(
+                            label: category,
+                            deleting: _pendingCategories.contains(category),
+                            onDeleted: () {
+                              if (!_busy) _removeCategory(category);
+                            },
+                          ),
+                      ],
+                    ),
+                    const SizedBox(height: 12),
+                    const Text(
+                      '删除分类只会移除选项，已有收藏会保留原分类。',
+                      style: TextStyle(fontSize: 12),
+                    ),
+                    if (_pendingCategories.isNotEmpty)
+                      const Padding(
+                        padding: EdgeInsets.only(top: 8),
+                        child: LinearProgressIndicator(minHeight: 2),
+                      ),
                   ],
                 ),
               ),
@@ -322,12 +382,12 @@ class _SettingsScreenState extends State<SettingsScreen> {
                     ),
                     const SizedBox(height: 8),
                     OutlinedButton.icon(
-                      onPressed: _busy ? null : _export,
+                      onPressed: _heavyDisabled ? null : _export,
                       icon: const Icon(Icons.download_outlined),
                       label: const Text('导出备份'),
                     ),
                     OutlinedButton.icon(
-                      onPressed: _busy ? null : _import,
+                      onPressed: _heavyDisabled ? null : _import,
                       icon: const Icon(Icons.upload_file_outlined),
                       label: const Text('导入备份'),
                     ),

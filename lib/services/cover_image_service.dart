@@ -1,6 +1,10 @@
+import 'package:flutter/material.dart';
+import 'package:flutter_cache_manager/flutter_cache_manager.dart';
 import 'package:image_picker/image_picker.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
 import 'package:uuid/uuid.dart';
+
+import '../core/session_cache.dart';
 
 class CoverImageService {
   CoverImageService(this.client);
@@ -10,6 +14,49 @@ class CoverImageService {
   static const _baseUrl = String.fromEnvironment('SUPABASE_URL');
 
   final SupabaseClient client;
+  final _signedUrls = SessionCache<String>();
+  static final _diskCaches = <String, CacheManager>{};
+  String? _cacheOwner;
+
+  String get _account => client.auth.currentUser?.id ?? 'signed-out';
+  String _key(String path) => '$_account:$path';
+
+  CacheManager get imageCache {
+    final owner = _cacheOwner = _account;
+    return _diskCaches.putIfAbsent(
+      owner,
+      () => CacheManager(
+        Config(
+          'collect-covers-$owner',
+          stalePeriod: const Duration(days: 7),
+          maxNrOfCacheObjects: 250,
+        ),
+      ),
+    );
+  }
+
+  String? cachedSignedUrl(String? url) {
+    final path = pathFromUrl(url);
+    return path == null ? null : _signedUrls.peek(_key(path));
+  }
+
+  bool hasFreshSignedUrl(String? url) {
+    final path = pathFromUrl(url);
+    return path == null || _signedUrls.contains(_key(path));
+  }
+
+  String cacheKey(String url) => _key(pathFromUrl(url) ?? url);
+
+  Future<void> clearSession() async {
+    _signedUrls.clear();
+    PaintingBinding.instance.imageCache.clear();
+    PaintingBinding.instance.imageCache.clearLiveImages();
+    final cache = _diskCaches.remove(_cacheOwner);
+    if (cache != null) {
+      await cache.emptyCache();
+      await cache.dispose();
+    }
+  }
 
   Future<String> upload({
     required XFile image,
@@ -74,12 +121,20 @@ class CoverImageService {
   Future<String?> signedUrl(String? imageUrl) async {
     final path = pathFromUrl(imageUrl);
     if (path == null) return null;
-    return client.storage.from(bucket).createSignedUrl(path, 3600);
+    return _signedUrls.get(
+      _key(path),
+      () => client.storage.from(bucket).createSignedUrl(path, 3600),
+      ttl: const Duration(minutes: 55),
+    );
   }
 
   Future<void> remove(String? imageUrl) async {
     final path = pathFromUrl(imageUrl);
-    if (path != null) await client.storage.from(bucket).remove([path]);
+    if (path != null) {
+      await client.storage.from(bucket).remove([path]);
+      _signedUrls.invalidate(_key(path));
+      await imageCache.removeFile(_key(path));
+    }
   }
 
   Future<List<int>?> downloadBytes(String? imageUrl) async {

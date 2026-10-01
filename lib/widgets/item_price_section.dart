@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 
 import '../core/collection_options.dart';
 import '../core/app_ui.dart';
+import 'rounded_choice_field.dart';
 
 class ItemPriceSection extends StatelessWidget {
   const ItemPriceSection({
@@ -59,21 +60,11 @@ class ItemPriceSection extends StatelessWidget {
           ),
           const SizedBox(width: 10),
           Expanded(
-            child: DropdownButtonFormField<String>(
-              isExpanded: true,
-              iconSize: 20,
-              style: Theme.of(context).textTheme.bodyMedium,
-              initialValue: currency,
-              decoration: const InputDecoration(
-                labelText: '货币',
-                contentPadding: EdgeInsets.symmetric(
-                  horizontal: AppSpacing.md,
-                  vertical: 13,
-                ),
-              ),
-              items: currencies.keys
-                  .map((v) => DropdownMenuItem(value: v, child: Text(v)))
-                  .toList(),
+            child: RoundedChoiceField(
+              label: '货币',
+              value: currency,
+              values: currencies.keys.toList(),
+              optionLabel: (code) => code,
               onChanged: busy ? null : onCurrency,
             ),
           ),
@@ -90,7 +81,13 @@ class ItemPriceSection extends StatelessWidget {
             suffixIcon: IconButton(
               tooltip: '按当前汇率估算',
               onPressed: busy ? null : onEstimateCny,
-              icon: const Icon(Icons.currency_exchange),
+              icon: busy
+                  ? const SizedBox(
+                      width: 20,
+                      height: 20,
+                      child: CircularProgressIndicator(strokeWidth: 2),
+                    )
+                  : const Icon(Icons.currency_exchange),
             ),
           ),
         ),

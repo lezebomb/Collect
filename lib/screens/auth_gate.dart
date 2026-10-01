@@ -56,6 +56,6 @@ class _AuthGateState extends State<AuthGate> {
           onComplete: () => setState(() => _recovering = false),
         )
       : _signedIn
-      ? const CollectionScreen()
+      ? CollectionScreen(key: ValueKey(_auth.currentSession?.user.id))
       : AuthScreen(auth: _auth);
 }

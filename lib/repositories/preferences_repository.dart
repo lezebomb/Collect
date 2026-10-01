@@ -2,7 +2,7 @@ import 'package:flutter/foundation.dart';
 import 'package:image_picker/image_picker.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
 
-import '../core/collection_options.dart';
+import '../core/session_cache.dart';
 import '../models/user_preferences.dart';
 import '../services/cover_image_service.dart';
 
@@ -11,14 +11,22 @@ class PreferencesRepository {
 
   final SupabaseClient client;
   final CoverImageService images;
+  final _preferences = SessionCache<UserPreferences>();
+  final _categories = SessionCache<List<String>>();
 
   String get userId => client.auth.currentUser!.id;
 
-  Future<UserPreferences> load() async {
+  Future<UserPreferences> load({bool refresh = false}) {
+    final owner = userId;
+    if (refresh) _preferences.invalidate(owner);
+    return _preferences.get(owner, () => _load(owner));
+  }
+
+  Future<UserPreferences> _load(String owner) async {
     final row = await client
         .from('user_preferences')
         .select()
-        .eq('user_id', userId)
+        .eq('user_id', owner)
         .maybeSingle();
     return row == null
         ? const UserPreferences()
@@ -26,16 +34,19 @@ class PreferencesRepository {
   }
 
   Future<UserPreferences> save(UserPreferences prefs) async {
+    final owner = userId;
     final row = await client
         .from('user_preferences')
         .upsert({
-          'user_id': userId,
+          'user_id': owner,
           ...prefs.toJson(),
           'updated_at': DateTime.now().toUtc().toIso8601String(),
         })
         .select()
         .single();
-    return UserPreferences.fromJson(row);
+    final saved = UserPreferences.fromJson(row);
+    _preferences.put(owner, saved);
+    return saved;
   }
 
   Future<UserPreferences> setWallpaper(
@@ -78,16 +89,23 @@ class PreferencesRepository {
 
   Future<List<String>> categories({
     List<String> itemCategories = const [],
+    bool refresh = false,
   }) async {
-    final rows = await client
-        .from('user_categories')
-        .select('name')
-        .eq('user_id', userId);
-    return {
-      ...collectionCategories,
-      ...itemCategories,
-      ...rows.map((row) => row['name'] as String),
-    }.toList();
+    final owner = userId;
+    if (refresh) _categories.invalidate(owner);
+    final definitions = await _categories.get(owner, () async {
+      final rows = await client
+          .from('user_categories')
+          .select('name')
+          .eq('user_id', owner)
+          .order('created_at', ascending: true)
+          .order('name', ascending: true);
+      return List<String>.unmodifiable(
+        rows.map((row) => row['name'] as String),
+      );
+    });
+    // Retired categories only appear when editing an item that already uses one.
+    return {...definitions, ...itemCategories}.toList();
   }
 
   Future<void> addCategory(String name) async {
@@ -95,20 +113,44 @@ class PreferencesRepository {
     if (value.isEmpty || value.length > 60) {
       throw const FormatException('分类名称需为 1–60 个字');
     }
-    if (collectionCategories.contains(value)) return;
-    if ((await categories()).contains(value)) return;
-    await client.from('user_categories').insert({
-      'user_id': userId,
-      'name': value,
-    });
+    final owner = userId;
+    final loaded = await categories();
+    final before = _categories.peek(owner) ?? loaded;
+    if (before.contains(value)) return;
+    _categories.put(owner, List.unmodifiable([...before, value]));
+    try {
+      await client.from('user_categories').insert({
+        'user_id': owner,
+        'name': value,
+      });
+    } catch (_) {
+      final current = _categories.peek(owner) ?? before;
+      _categories.put(
+        owner,
+        List.unmodifiable(current.where((v) => v != value)),
+      );
+      rethrow;
+    }
   }
 
   Future<void> removeCategory(String name) async {
-    if (collectionCategories.contains(name)) return;
-    await client
-        .from('user_categories')
-        .delete()
-        .eq('user_id', userId)
-        .eq('name', name);
+    final owner = userId;
+    final loaded = await categories();
+    final before = _categories.peek(owner) ?? loaded;
+    _categories.put(owner, List.unmodifiable(before.where((v) => v != name)));
+    try {
+      await client
+          .from('user_categories')
+          .delete()
+          .eq('user_id', owner)
+          .eq('name', name);
+    } catch (_) {
+      final current = _categories.peek(owner) ?? [];
+      _categories.put(
+        owner,
+        List.unmodifiable({...current, if (before.contains(name)) name}),
+      );
+      rethrow;
+    }
   }
 }

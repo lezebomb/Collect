@@ -1,5 +1,3 @@
-const collectionCategories = <String>['游戏', '周边', '配件', '主机', '其他'];
-
 const gamePlatforms = <String>['Nintendo', 'PC'];
 const gameContentTypes = <String>['本体', 'DLC', '本体+DLC'];
 const gameEditions = <String>['实体版', '数字版'];

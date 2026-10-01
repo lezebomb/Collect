@@ -5,7 +5,6 @@ import 'package:image_picker/image_picker.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
 import 'package:uuid/uuid.dart';
 
-import '../core/collection_options.dart';
 import '../core/app_ui.dart';
 import '../models/catalog_candidate.dart';
 import '../models/collection_item.dart';
@@ -26,6 +25,7 @@ import '../widgets/catalog_candidate_image.dart';
 import '../widgets/catalog_selection_dialog.dart';
 import '../widgets/loading_overlay.dart';
 import '../widgets/section_card.dart';
+import '../widgets/rounded_choice_field.dart';
 
 class ItemFormScreen extends StatefulWidget {
   const ItemFormScreen({
@@ -65,8 +65,7 @@ class _ItemFormScreenState extends State<ItemFormScreen> {
   late final _priceCny = TextEditingController(
     text: widget.initial?.priceCny?.toStringAsFixed(2),
   );
-  late String _category =
-      widget.initial?.category ?? collectionCategories.first;
+  late String? _category = widget.initial?.category;
   late String _currency = widget.initial?.currency ?? 'CNY';
   late String? _platform = widget.initial?.gamePlatform;
   late String? _contentType = widget.initial?.gameContentType;
@@ -74,7 +73,6 @@ class _ItemFormScreenState extends State<ItemFormScreen> {
   late String? _playStatus = widget.initial?.gamePlayStatus;
   late DateTime? _purchaseDate = widget.initial?.purchaseDate;
   late List<String> _categories = {
-    ...collectionCategories,
     if (widget.initial != null) widget.initial!.category,
   }.toList();
   XFile? _newCover;
@@ -110,8 +108,16 @@ class _ItemFormScreenState extends State<ItemFormScreen> {
       final categories = await widget.preferences.categories(
         itemCategories: [if (widget.initial != null) widget.initial!.category],
       );
-      if (mounted) setState(() => _categories = categories);
-    } catch (_) {
+      if (mounted) {
+        setState(() {
+          _categories = categories;
+          if (!_categories.contains(_category)) {
+            _category = _categories.firstOrNull;
+          }
+        });
+      }
+    } catch (error) {
+      if (mounted) _message('分类加载失败：$error');
       if (mounted &&
           widget.initial != null &&
           !_categories.contains(widget.initial!.category)) {
@@ -537,7 +543,7 @@ class _ItemFormScreenState extends State<ItemFormScreen> {
       id: widget.initial?.id ?? const Uuid().v4(),
       userId: user.id,
       name: _name.text.trim(),
-      category: _category,
+      category: _category!,
       coverImage: widget.initial?.coverImage,
       description: _description.text.trim(),
       purchaseDate: _purchaseDate,
@@ -580,18 +586,11 @@ class _ItemFormScreenState extends State<ItemFormScreen> {
     String? value,
     List<String> values,
     ValueChanged<String?> onChanged,
-  ) => DropdownButtonFormField<String>(
-    isExpanded: true,
-    initialValue: value,
-    decoration: InputDecoration(labelText: label),
-    items: values
-        .map(
-          (v) => DropdownMenuItem(
-            value: v,
-            child: Text(v, maxLines: 1, overflow: TextOverflow.ellipsis),
-          ),
-        )
-        .toList(),
+  ) => RoundedChoiceField(
+    label: label,
+    value: value,
+    values: values,
+    validator: (v) => v == null ? '请选择或添加分类' : null,
     onChanged: _busy ? null : onChanged,
   );
 
@@ -599,7 +598,7 @@ class _ItemFormScreenState extends State<ItemFormScreen> {
   Widget build(BuildContext context) => Scaffold(
     appBar: AppBar(title: Text(widget.initial == null ? '添加收藏' : '编辑收藏')),
     body: LoadingOverlay(
-      loading: _loadingMessage != null,
+      loading: _loadingMessage == '正在保存收藏…',
       message: _loadingMessage ?? '正在处理…',
       child: Form(
         key: _formKey,
@@ -610,6 +609,20 @@ class _ItemFormScreenState extends State<ItemFormScreen> {
               padding: AppSpacing.page,
               keyboardDismissBehavior: ScrollViewKeyboardDismissBehavior.onDrag,
               children: [
+                if (_loadingMessage != null && _loadingMessage != '正在保存收藏…')
+                  Padding(
+                    padding: const EdgeInsets.only(bottom: 12),
+                    child: Column(
+                      children: [
+                        const LinearProgressIndicator(minHeight: 2),
+                        const SizedBox(height: 6),
+                        Text(
+                          _loadingMessage!,
+                          style: Theme.of(context).textTheme.bodySmall,
+                        ),
+                      ],
+                    ),
+                  ),
                 if (_categoriesLoading)
                   const Padding(
                     padding: EdgeInsets.only(bottom: 12),
@@ -642,7 +655,15 @@ class _ItemFormScreenState extends State<ItemFormScreen> {
                           labelText: '名称',
                           suffixIcon: IconButton(
                             tooltip: '搜索资料',
-                            icon: const Icon(Icons.search),
+                            icon: _busy && _loadingMessage != null
+                                ? const SizedBox(
+                                    width: 20,
+                                    height: 20,
+                                    child: CircularProgressIndicator(
+                                      strokeWidth: 2,
+                                    ),
+                                  )
+                                : const Icon(Icons.search),
                             onPressed: _busy ? null : () => _searchCatalog(),
                           ),
                         ),

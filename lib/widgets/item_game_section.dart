@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 
 import '../core/collection_options.dart';
 import '../core/app_ui.dart';
+import 'rounded_choice_field.dart';
 
 class ItemGameSection extends StatelessWidget {
   const ItemGameSection({
@@ -32,18 +33,10 @@ class ItemGameSection extends StatelessWidget {
     String? value,
     List<String> values,
     ValueChanged<String?> onChanged,
-  ) => DropdownButtonFormField<String>(
-    isExpanded: true,
-    initialValue: value,
-    decoration: InputDecoration(labelText: label),
-    items: values
-        .map(
-          (v) => DropdownMenuItem(
-            value: v,
-            child: Text(v, maxLines: 1, overflow: TextOverflow.ellipsis),
-          ),
-        )
-        .toList(),
+  ) => RoundedChoiceField(
+    label: label,
+    value: value,
+    values: values,
     onChanged: busy ? null : onChanged,
   );
 

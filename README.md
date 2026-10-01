@@ -13,7 +13,7 @@
 
 ## 运行前准备
 
-1. 已创建专用 Supabase 项目 **Collect**（`lowwbbgyoqivzjmruzig`，`ap-southeast-1`），并应用了初始、`collection_features`、`remove_collection_status_and_rating` 迁移。新环境先运行 `supabase/schema.sql`，再按顺序运行 `supabase/migrations/` 中的迁移。
+1. 已创建专用 Supabase 项目 **Collect**（`lowwbbgyoqivzjmruzig`，`ap-southeast-1`），并应用了初始、`collection_features`、`remove_collection_status_and_rating`、`editable_initial_categories` 迁移。新环境先运行 `supabase/schema.sql`，再按顺序运行 `supabase/migrations/` 中的迁移。
 2. 在 Supabase Auth 中启用 Email provider。若开启邮箱确认，注册后先打开邮件确认，再回到 App 登录。密码恢复使用官方邮件流程；在 Auth 的 Redirect URLs 中加入 `collect://auth/recovery`，正式使用前配置自己的 SMTP 发件服务。
 3. 当前工作区的 `config/local.json` 已填入 Collect 项目 URL 和 **Publishable Key**。在新设备上，复制 `config/app_config.example.json` 为 `config/local.json` 并填入对应值。不要在移动端使用 Secret 或 `service_role` key。`config/local.json` 已加入 `.gitignore`。
 4. 安装 Flutter SDK 和 Android SDK，运行：
@@ -41,7 +41,7 @@
 
 - 展柜按添加时间、购入时间、价格和名称排序，可按分类筛选并搜索名称或描述。
 - 添加时可手动填写，也可拍照识别包装上的文字。资料搜索展示图片、名称和来源；选中后分别勾选是否使用封面、是否使用结果名称。默认只使用图片，保留自己的名称，描述由用户自己填写。游戏候选来自 [GameTDB](https://www.gametdb.com/)、[CheapShark](https://www.cheapshark.com/) 和 Steam；通用图片来自 [Tavily](https://www.tavily.com/)、[Bing 图片](https://www.bing.com/images/search)、[Openverse](https://openverse.org/) 与 [Wikimedia Commons](https://commons.wikimedia.org/)，书籍资料来自 [Google Books](https://books.google.com/) 和 [Open Library](https://openlibrary.org/)。搜索源失效时可以换词重搜或选本机图片。
-- 默认分类为游戏、周边、配件、主机和其他，可添加自定义分类。游戏可填写 Nintendo/PC 平台、内容类型、实体/数字版和游玩状态。
+- 账号创建时预置游戏、周边、配件、主机和其他，之后所有分类均可添加或删除。删除分类定义不会修改已有收藏，编辑旧收藏仍能选择其原分类；备份分别保留分类定义和物品自身分类。游戏可填写 Nintendo/PC 平台、内容类型、实体/数字版和游玩状态。
 - 收藏物品均视为已拥有，不再保存通用收藏状态或评分。
 - 价格默认人民币，支持美元、港币、日元、欧元及英镑。外币的人民币折算额用于跨币种统计，可按当前汇率估算或手动填写。保存后的折算额不会随汇率波动自动变化。
 - 统计可按分类、年份筛选，包含总投入、在手物品、类型投入占比、各类型数量、月度消费和游戏游玩状态。
@@ -50,8 +50,18 @@
 
 ## 验证
 
+三个 Tab 通过 `IndexedStack` 保留状态，收藏列表及设置/分类在当前会话中复用，主动刷新或备份导入才重新查询。设置开关即时更新、串行保存，失败恢复最后一次成功值；分类操作也会在失败时回退。
+
+私有图片的签名链接有效 60 分钟、内存复用 55 分钟，同一对象的并发签名请求合并。`cached_network_image 3.4.1` 和 `flutter_cache_manager 3.4.1` 按账号与 Storage 路径缓存图片，缩略图按显示宽度解码，退出会话清理缓存。系统可能回收磁盘缓存，首次加载和真正刷新仍需网络。
+
+首页搜索可展开/收起，分类横向排列、排序在圆角面板中选择。普通竖屏按可用高度安排两列三行，放大系统字体、壁纸和展开搜索会占用更多空间。卡片名称完整换行并按空间缩放，辅助文字也按宽度适配。搜索、下载与识别采用页内进度提示；直接点击大封面可选相册或拍照。
+
 ```powershell
 flutter analyze
 flutter test
 flutter build apk --debug --dart-define-from-file=config/local.json
 ```
+
+本轮验证：分析无问题、21 项测试通过、指定配置的 Debug APK 构建成功。在 PLR110 真机上检查了 Tab 切换、图片直接复用、即时设置开关、默认分类删除、封面选择和搜索完整链路；连续五次 Tab 切换与本地搜索均记录到 0 个新 HTTP 请求。默认分类删除后原有两件游戏收藏保持不变，测试分类和设置已恢复。
+
+两列三行布局以 320×700、360×780、390×844 三种逻辑尺寸及六件内存测试收藏验证，未写入测试收藏到数据库。当前真机账号只有两件收藏；大量高清图片滚动、120 Hz 帧率和 55 分钟后的真实续签仍需持续观察，续签过期边界已通过自动测试。

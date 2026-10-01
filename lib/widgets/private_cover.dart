@@ -1,3 +1,4 @@
+import 'package:cached_network_image/cached_network_image.dart';
 import 'package:flutter/material.dart';
 
 import '../core/app_theme.dart';
@@ -25,7 +26,9 @@ class _PrivateCoverState extends State<PrivateCover> {
   @override
   void didUpdateWidget(covariant PrivateCover oldWidget) {
     super.didUpdateWidget(oldWidget);
-    if (oldWidget.imageUrl != widget.imageUrl) {
+    if (oldWidget.imageUrl != widget.imageUrl ||
+        oldWidget.images != widget.images ||
+        !widget.images.hasFreshSignedUrl(widget.imageUrl)) {
       _signedUrl = widget.images.signedUrl(widget.imageUrl);
     }
   }
@@ -33,21 +36,33 @@ class _PrivateCoverState extends State<PrivateCover> {
   @override
   Widget build(BuildContext context) => FutureBuilder<String?>(
     future: _signedUrl,
+    initialData: widget.images.cachedSignedUrl(widget.imageUrl),
     builder: (context, snapshot) {
       if (snapshot.connectionState != ConnectionState.done &&
-          widget.imageUrl != null) {
+          widget.imageUrl != null &&
+          snapshot.data == null) {
         return const _CoverPlaceholder(loading: true);
       }
       final url = snapshot.data;
       if (url == null) return const _CoverPlaceholder();
-      return Image.network(
-        url,
-        fit: widget.fit,
-        width: double.infinity,
-        height: double.infinity,
-        loadingBuilder: (context, child, progress) =>
-            progress == null ? child : const _CoverPlaceholder(loading: true),
-        errorBuilder: (context, error, stackTrace) => const _CoverPlaceholder(),
+      return LayoutBuilder(
+        builder: (context, constraints) => CachedNetworkImage(
+          imageUrl: url,
+          cacheKey: widget.images.cacheKey(widget.imageUrl!),
+          cacheManager: widget.images.imageCache,
+          memCacheWidth: constraints.maxWidth.isFinite
+              ? (constraints.maxWidth * MediaQuery.devicePixelRatioOf(context))
+                    .round()
+                    .clamp(1, 1600)
+              : null,
+          fit: widget.fit,
+          width: double.infinity,
+          height: double.infinity,
+          fadeInDuration: const Duration(milliseconds: 120),
+          fadeOutDuration: Duration.zero,
+          placeholder: (context, url) => const _CoverPlaceholder(loading: true),
+          errorWidget: (context, url, error) => const _CoverPlaceholder(),
+        ),
       );
     },
   );

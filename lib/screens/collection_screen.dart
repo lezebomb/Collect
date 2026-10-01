@@ -1,9 +1,10 @@
+import 'dart:async';
+
 import 'package:flutter/material.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
 
 import '../core/app_theme.dart';
 import '../core/app_ui.dart';
-
 import '../models/collection_item.dart';
 import '../models/user_preferences.dart';
 import '../repositories/item_repository.dart';
@@ -11,14 +12,27 @@ import '../repositories/preferences_repository.dart';
 import '../services/auth_service.dart';
 import '../services/backup_service.dart';
 import '../services/cover_image_service.dart';
-import '../widgets/collection_card.dart';
-import '../widgets/private_cover.dart';
+import '../widgets/collection_wall.dart';
 import 'item_detail_screen.dart';
 import 'item_form_screen.dart';
 import 'settings_screen.dart';
 import 'stats_screen.dart';
 
-typedef _HomeData = ({List<CollectionItem> items, UserPreferences preferences});
+typedef _HomeData = ({
+  List<CollectionItem> items,
+  UserPreferences preferences,
+  List<String> categories,
+});
+
+const _sortOptions = <String, String>{
+  'created_desc': '添加时间：新到旧',
+  'created_asc': '添加时间：旧到新',
+  'purchase_desc': '购入时间：新到旧',
+  'purchase_asc': '购入时间：旧到新',
+  'price_desc': '价格：高到低',
+  'price_asc': '价格：低到高',
+  'name': '名称',
+};
 
 class CollectionScreen extends StatefulWidget {
   const CollectionScreen({super.key});
@@ -39,46 +53,83 @@ class _CollectionScreenState extends State<CollectionScreen> {
   );
   late final _auth = AuthService(_client);
   late Future<_HomeData> _data = _load();
+  _HomeData? _current;
   final _search = TextEditingController();
   int _tab = 0;
   String? _category;
   String _sort = 'created_desc';
+  bool _searchExpanded = false;
   bool _signingOut = false;
+  int _loadRevision = 0;
 
-  Future<_HomeData> _load() async {
-    try {
-      final results = await Future.wait<Object>([
-        _itemsRepository.list(),
-        _preferencesRepository.load(),
-      ]);
-      return (
-        items: results[0] as List<CollectionItem>,
-        preferences: results[1] as UserPreferences,
-      );
-    } catch (error) {
-      debugPrint('Collection load failed: $error');
-      rethrow;
-    }
+  Future<_HomeData> _load({bool refresh = false}) async {
+    final revision = ++_loadRevision;
+    final results =
+        await Future.wait<Object>([
+          _itemsRepository.list(),
+          _preferencesRepository.load(refresh: refresh),
+          _preferencesRepository.categories(refresh: refresh),
+        ]).catchError((Object error, StackTrace stack) {
+          debugPrint('Collection load failed: $error');
+          Error.throwWithStackTrace(error, stack);
+        });
+    final next = (
+      items: results[0] as List<CollectionItem>,
+      preferences: results[1] as UserPreferences,
+      categories: results[2] as List<String>,
+    );
+    if (revision == _loadRevision) _current = next;
+    return next;
   }
 
   Future<void> _reload() async {
-    final next = _load();
+    final next = _load(refresh: true);
     setState(() {
       _data = next;
     });
     try {
       await next;
-    } catch (_) {}
+    } catch (error) {
+      if (mounted && _current != null) {
+        ScaffoldMessenger.of(context)
+            .showSnackBar(SnackBar(content: Text('刷新失败：$error')));
+      }
+    }
+  }
+
+  void _settingsChanged(UserPreferences preferences, List<String> categories) {
+    final current = _current;
+    if (!mounted || current == null) return;
+    setState(() {
+      _current = (
+        items: current.items,
+        preferences: preferences,
+        categories: List.of(categories),
+      );
+      _data = Future.value(_current!);
+    });
   }
 
   Future<void> _applyItemChange(String id, CollectionItem? item) async {
-    final current = await _data;
+    final current = _current ?? await _data;
     final items = current.items.where((existing) => existing.id != id).toList();
     if (item != null) items.insert(0, item);
     if (mounted) {
       setState(() {
-        _data = Future.value((items: items, preferences: current.preferences));
+        _current = (
+          items: items,
+          preferences: current.preferences,
+          categories: current.categories,
+        );
+        _data = Future.value(_current!);
       });
+    }
+  }
+
+  Future<void> _syncCategories() async {
+    final categories = await _preferencesRepository.categories();
+    if (mounted && _current != null) {
+      _settingsChanged(_current!.preferences, categories);
     }
   }
 
@@ -92,7 +143,9 @@ class _CollectionScreenState extends State<CollectionScreen> {
         ),
       ),
     );
-    if (saved != null && mounted) await _applyItemChange(saved.id, saved);
+    if (!mounted) return;
+    if (saved != null) await _applyItemChange(saved.id, saved);
+    await _syncCategories();
   }
 
   Future<void> _open(CollectionItem item) async {
@@ -107,6 +160,7 @@ class _CollectionScreenState extends State<CollectionScreen> {
         ),
       ),
     );
+    if (mounted) await _syncCategories();
   }
 
   List<CollectionItem> _visible(List<CollectionItem> source) {
@@ -151,9 +205,70 @@ class _CollectionScreenState extends State<CollectionScreen> {
     return items;
   }
 
+  Future<void> _chooseSort() async {
+    final sort = await showModalBottomSheet<String>(
+      context: context,
+      showDragHandle: true,
+      isScrollControlled: true,
+      builder: (context) => SafeArea(
+        child: SingleChildScrollView(
+          child: Padding(
+            padding: const EdgeInsets.fromLTRB(16, 0, 16, 20),
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Padding(
+                  padding: const EdgeInsets.fromLTRB(12, 0, 12, 12),
+                  child: Text(
+                    '排序方式',
+                    style: Theme.of(context).textTheme.titleLarge,
+                  ),
+                ),
+                for (final entry in _sortOptions.entries)
+                  ListTile(
+                    shape: RoundedRectangleBorder(
+                      borderRadius: BorderRadius.circular(AppRadius.input),
+                    ),
+                    selected: entry.key == _sort,
+                    selectedTileColor: AppTheme.accent.withValues(alpha: .08),
+                    title: Text(entry.value),
+                    trailing: entry.key == _sort
+                        ? const Icon(Icons.check_rounded)
+                        : null,
+                    onTap: () => Navigator.pop(context, entry.key),
+                  ),
+              ],
+            ),
+          ),
+        ),
+      ),
+    );
+    if (sort != null && mounted) setState(() => _sort = sort);
+  }
+
+  Future<void> _signOut() async {
+    setState(() => _signingOut = true);
+    try {
+      await _auth.signOut();
+    } catch (error) {
+      if (mounted) {
+        ScaffoldMessenger.of(context)
+            .showSnackBar(SnackBar(content: Text('退出失败：$error')));
+      }
+    } finally {
+      if (mounted) setState(() => _signingOut = false);
+    }
+  }
+
   @override
   void dispose() {
     _search.dispose();
+    unawaited(
+      _images.clearSession().catchError((Object error) {
+        debugPrint('Image cache cleanup failed: $error');
+      }),
+    );
     super.dispose();
   }
 
@@ -166,306 +281,111 @@ class _CollectionScreenState extends State<CollectionScreen> {
         _ => '收藏柜',
       }),
       actions: [
-        IconButton(
-          tooltip: '退出登录',
-          icon: _signingOut
-              ? const SizedBox(
-                  width: 20,
-                  height: 20,
-                  child: CircularProgressIndicator(strokeWidth: 2),
-                )
-              : const Icon(Icons.logout_rounded),
-          onPressed: _signingOut
-              ? null
-              : () async {
-                  setState(() => _signingOut = true);
-                  try {
-                    await _auth.signOut();
-                  } catch (error) {
-                    if (context.mounted) {
-                      ScaffoldMessenger.of(context)
-                          .showSnackBar(SnackBar(content: Text('退出失败：$error')));
-                    }
-                  } finally {
-                    if (mounted) setState(() => _signingOut = false);
-                  }
-                },
-        ),
+        if (_tab == 0) ...[
+          IconButton(
+            tooltip: '搜索收藏',
+            isSelected: _searchExpanded,
+            icon: const Icon(Icons.search_rounded),
+            onPressed: () => setState(() => _searchExpanded = !_searchExpanded),
+          ),
+          IconButton(
+            tooltip: '筛选和排序',
+            icon: const Icon(Icons.filter_list_rounded),
+            onPressed: _chooseSort,
+          ),
+          Padding(
+            padding: const EdgeInsets.only(right: 12),
+            child: IconButton.filled(
+              tooltip: '添加收藏',
+              icon: const Icon(Icons.add_rounded),
+              onPressed: _add,
+            ),
+          ),
+        ],
+        if (_tab == 2)
+          IconButton(
+            tooltip: '退出登录',
+            onPressed: _signingOut ? null : _signOut,
+            icon: _signingOut
+                ? const SizedBox(
+                    width: 20,
+                    height: 20,
+                    child: CircularProgressIndicator(strokeWidth: 2),
+                  )
+                : const Icon(Icons.logout_rounded),
+          ),
       ],
     ),
     body: SafeArea(
       child: FutureBuilder<_HomeData>(
         future: _data,
         builder: (context, snapshot) {
-          if (snapshot.connectionState != ConnectionState.done) {
+          final data = _current ?? snapshot.data;
+          if (data == null) {
+            if (snapshot.hasError) {
+              return Center(
+                child: TextButton(
+                  onPressed: _reload,
+                  child: const Text('数据加载失败，点击重试'),
+                ),
+              );
+            }
             return const Center(child: CircularProgressIndicator());
           }
-          if (snapshot.hasError) {
-            return Center(
-              child: Column(
-                mainAxisSize: MainAxisSize.min,
-                children: [
-                  const Text('数据暂时没有加载出来'),
-                  TextButton(onPressed: _reload, child: const Text('重试')),
-                ],
+          final categories = {
+            ...data.categories,
+            ...data.items.map((item) => item.category),
+          }.toList();
+          return IndexedStack(
+            index: _tab,
+            children: [
+              CollectionWall(
+                items: _visible(data.items),
+                total: data.items.length,
+                categories: categories,
+                category: _category,
+                preferences: data.preferences,
+                images: _images,
+                search: _search,
+                searchExpanded: _searchExpanded,
+                onSearch: () => setState(() {}),
+                onCloseSearch: () {
+                  FocusScope.of(context).unfocus();
+                  setState(() {
+                    _search.clear();
+                    _searchExpanded = false;
+                  });
+                },
+                onCategory: (value) => setState(() => _category = value),
+                onOpen: _open,
+                onRefresh: _reload,
               ),
-            );
-          }
-          final data = snapshot.data!;
-          final page = switch (_tab) {
-            1 => StatsScreen(items: data.items),
-            2 => SettingsScreen(
-              repository: _preferencesRepository,
-              backup: _backup,
-              images: _images,
-              onChanged: _reload,
-            ),
-            _ => _home(data.items, data.preferences),
-          };
-          return AnimatedSwitcher(
-            duration: MediaQuery.disableAnimationsOf(context)
-                ? Duration.zero
-                : const Duration(milliseconds: 180),
-            child: KeyedSubtree(key: ValueKey(_tab), child: page),
+              StatsScreen(items: data.items),
+              SettingsScreen(
+                repository: _preferencesRepository,
+                backup: _backup,
+                images: _images,
+                initialPreferences: data.preferences,
+                initialCategories: data.categories,
+                onChanged: _settingsChanged,
+                onDataChanged: _reload,
+              ),
+            ],
           );
         },
       ),
     ),
     bottomNavigationBar: NavigationBar(
       selectedIndex: _tab,
-      onDestinationSelected: (index) => setState(() => _tab = index),
+      onDestinationSelected: (index) {
+        FocusScope.of(context).unfocus();
+        setState(() => _tab = index);
+      },
       destinations: const [
         NavigationDestination(icon: Icon(Icons.shelves), label: '展柜'),
         NavigationDestination(icon: Icon(Icons.bar_chart_rounded), label: '统计'),
         NavigationDestination(icon: Icon(Icons.settings_outlined), label: '设置'),
       ],
     ),
-    floatingActionButton: _tab == 0
-        ? FloatingActionButton.extended(
-            onPressed: _add,
-            tooltip: '添加收藏',
-            icon: const Icon(Icons.add),
-            label: const Text('收藏'),
-          )
-        : null,
   );
-
-  Widget _home(List<CollectionItem> all, UserPreferences preferences) {
-    final categories = all.map((item) => item.category).toSet().toList()
-      ..sort();
-    final items = _visible(all);
-    return LayoutBuilder(
-      builder: (context, constraints) {
-        final columns = constraints.maxWidth >= 800
-            ? 4
-            : constraints.maxWidth >= 600
-            ? 3
-            : 2;
-        final cardWidth =
-            (constraints.maxWidth - 40 - (columns - 1) * 12) / columns;
-        final textScale = MediaQuery.textScalerOf(context).scale(14) / 14;
-        final hasPrice =
-            (preferences.showPrice || preferences.showDailyCost) &&
-            all.any((item) => item.price != null);
-        final textHeight =
-            (hasPrice ? 82.0 : 62.0) * textScale.clamp(1, double.infinity);
-        final cardHeight = cardWidth * (hasPrice ? .92 : .82) + textHeight;
-        return RefreshIndicator(
-          onRefresh: _reload,
-          child: CustomScrollView(
-            physics: const AlwaysScrollableScrollPhysics(),
-            keyboardDismissBehavior: ScrollViewKeyboardDismissBehavior.onDrag,
-            slivers: [
-              if (preferences.wallpaperUrl != null)
-                SliverToBoxAdapter(
-                  child: Padding(
-                    padding: const EdgeInsets.fromLTRB(20, 8, 20, 0),
-                    child: ClipRRect(
-                      borderRadius: BorderRadius.circular(AppRadius.card),
-                      child: SizedBox(
-                        height: 104,
-                        child: Stack(
-                          fit: StackFit.expand,
-                          children: [
-                            PrivateCover(
-                              imageUrl: preferences.wallpaperUrl,
-                              images: _images,
-                            ),
-                            const ColoredBox(color: Color(0x55000000)),
-                            const Center(
-                              child: Text(
-                                '我的收藏柜',
-                                style: TextStyle(
-                                  color: Colors.white,
-                                  fontSize: 24,
-                                  fontWeight: FontWeight.bold,
-                                ),
-                              ),
-                            ),
-                          ],
-                        ),
-                      ),
-                    ),
-                  ),
-                ),
-              SliverPadding(
-                padding: const EdgeInsets.fromLTRB(20, 16, 20, 8),
-                sliver: SliverToBoxAdapter(
-                  child: Column(
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    children: [
-                      TextField(
-                        controller: _search,
-                        onChanged: (_) => setState(() {}),
-                        decoration: InputDecoration(
-                          prefixIcon: Icon(Icons.search),
-                          hintText: '搜索我的收藏',
-                          suffixIcon: _search.text.isEmpty
-                              ? null
-                              : IconButton(
-                                  tooltip: '清除搜索',
-                                  onPressed: () => setState(_search.clear),
-                                  icon: const Icon(Icons.close_rounded),
-                                ),
-                        ),
-                      ),
-                      const SizedBox(height: 8),
-                      Row(
-                        children: [
-                          Expanded(
-                            child: DropdownButton<String?>(
-                              underline: const SizedBox.shrink(),
-                              borderRadius: BorderRadius.circular(
-                                AppRadius.input,
-                              ),
-                              isExpanded: true,
-                              value: _category,
-                              items: [
-                                const DropdownMenuItem<String?>(
-                                  value: null,
-                                  child: Text('全部分类'),
-                                ),
-                                ...categories.map(
-                                  (v) => DropdownMenuItem<String?>(
-                                    value: v,
-                                    child: Text(
-                                      v,
-                                      maxLines: 1,
-                                      overflow: TextOverflow.ellipsis,
-                                    ),
-                                  ),
-                                ),
-                              ],
-                              onChanged: (v) => setState(() => _category = v),
-                            ),
-                          ),
-                          const SizedBox(width: 12),
-                          Expanded(
-                            child: DropdownButton<String>(
-                              underline: const SizedBox.shrink(),
-                              borderRadius: BorderRadius.circular(
-                                AppRadius.input,
-                              ),
-                              isExpanded: true,
-                              value: _sort,
-                              items: const [
-                                DropdownMenuItem(
-                                  value: 'created_desc',
-                                  child: Text('添加时间：新到旧'),
-                                ),
-                                DropdownMenuItem(
-                                  value: 'created_asc',
-                                  child: Text('添加时间：旧到新'),
-                                ),
-                                DropdownMenuItem(
-                                  value: 'purchase_desc',
-                                  child: Text('购入时间：新到旧'),
-                                ),
-                                DropdownMenuItem(
-                                  value: 'purchase_asc',
-                                  child: Text('购入时间：旧到新'),
-                                ),
-                                DropdownMenuItem(
-                                  value: 'price_desc',
-                                  child: Text('价格：高到低'),
-                                ),
-                                DropdownMenuItem(
-                                  value: 'price_asc',
-                                  child: Text('价格：低到高'),
-                                ),
-                                DropdownMenuItem(
-                                  value: 'name',
-                                  child: Text('名称'),
-                                ),
-                              ],
-                              onChanged: (v) =>
-                                  setState(() => _sort = v ?? _sort),
-                            ),
-                          ),
-                        ],
-                      ),
-                      Align(
-                        alignment: Alignment.centerLeft,
-                        child: Text(
-                          '${items.length} / ${all.length} 件收藏',
-                          style: const TextStyle(
-                            color: AppTheme.muted,
-                            fontSize: 12,
-                          ),
-                        ),
-                      ),
-                    ],
-                  ),
-                ),
-              ),
-              if (items.isEmpty)
-                SliverFillRemaining(
-                  hasScrollBody: false,
-                  child: Center(
-                    child: Padding(
-                      padding: const EdgeInsets.all(24),
-                      child: Column(
-                        mainAxisSize: MainAxisSize.min,
-                        children: [
-                          const Icon(
-                            Icons.shelves,
-                            size: 48,
-                            color: AppTheme.muted,
-                          ),
-                          const SizedBox(height: 16),
-                          Text(
-                            all.isEmpty ? '收藏柜还是空的，点击 + 添加第一件收藏' : '没有符合条件的物品',
-                            textAlign: TextAlign.center,
-                          ),
-                        ],
-                      ),
-                    ),
-                  ),
-                )
-              else
-                SliverPadding(
-                  padding: const EdgeInsets.fromLTRB(20, 8, 20, 96),
-                  sliver: SliverGrid.builder(
-                    itemCount: items.length,
-                    gridDelegate: SliverGridDelegateWithFixedCrossAxisCount(
-                      crossAxisCount: columns,
-                      mainAxisSpacing: AppSpacing.lg,
-                      crossAxisSpacing: AppSpacing.md,
-                      mainAxisExtent: cardHeight,
-                    ),
-                    itemBuilder: (context, index) => CollectionCard(
-                      key: ValueKey(items[index].id),
-                      item: items[index],
-                      images: _images,
-                      preferences: preferences,
-                      onTap: () => _open(items[index]),
-                    ),
-                  ),
-                ),
-            ],
-          ),
-        );
-      },
-    );
-  }
 }
