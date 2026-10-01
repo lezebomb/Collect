@@ -6,7 +6,7 @@ import '../core/app_theme.dart';
 import '../core/app_ui.dart';
 import '../models/collection_item.dart';
 import '../widgets/section_card.dart';
-import '../widgets/category_chip.dart';
+import '../widgets/selection_sheet.dart';
 import '../widgets/monthly_spending_chart.dart';
 
 class StatsScreen extends StatefulWidget {
@@ -26,38 +26,20 @@ class StatsScreenState extends State<StatsScreen> {
     List<String> values,
     String selected,
     String Function(String) label,
-  ) => showModalBottomSheet<String>(
+  ) => showSelectionSheet<String>(
     context: context,
-    showDragHandle: true,
-    isScrollControlled: true,
-    builder: (context) => SafeArea(
-      child: Padding(
-        padding: const EdgeInsets.fromLTRB(20, 0, 20, 24),
-        child: Column(
-          mainAxisSize: MainAxisSize.min,
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            Text(title, style: Theme.of(context).textTheme.titleLarge),
-            const SizedBox(height: 16),
-            Flexible(
-              child: SingleChildScrollView(
-                child: Wrap(
-                  spacing: 8,
-                  runSpacing: 8,
-                  children: [
-                    for (final value in values)
-                      CategoryChip(
-                        label: label(value),
-                        selected: value == selected,
-                        onTap: () => Navigator.pop(context, value),
-                      ),
-                  ],
-                ),
-              ),
-            ),
-          ],
-        ),
-      ),
+    title: title,
+    builder: (context) => Wrap(
+      spacing: 8,
+      runSpacing: 8,
+      children: [
+        for (final value in values)
+          SelectionOption(
+            label: label(value),
+            selected: value == selected,
+            onTap: () => Navigator.pop(context, value),
+          ),
+      ],
     ),
   );
 

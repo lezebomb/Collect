@@ -17,6 +17,7 @@ import 'package:shou_cang_gui/widgets/collection_wall.dart';
 import 'package:shou_cang_gui/widgets/category_chip.dart';
 import 'package:shou_cang_gui/widgets/item_image_section.dart';
 import 'package:shou_cang_gui/widgets/rounded_choice_field.dart';
+import 'package:shou_cang_gui/widgets/selection_sheet.dart';
 
 class _UnusedClient implements SupabaseClient {
   @override
@@ -145,7 +146,7 @@ void main() {
       );
       await tester.tap(find.text('CNY'));
       await tester.pumpAndSettle();
-      expect(find.byType(CategoryChip), findsNWidgets(2));
+      expect(find.byType(SelectionOption), findsNWidgets(2));
       await tester.tap(find.text('USD'));
       await tester.pumpAndSettle();
       expect(selected, 'USD');

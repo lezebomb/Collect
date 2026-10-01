@@ -28,6 +28,7 @@ import '../widgets/loading_overlay.dart';
 import '../widgets/section_card.dart';
 import '../widgets/rounded_choice_field.dart';
 import '../widgets/confirmation_dialog.dart';
+import '../widgets/selection_sheet.dart';
 
 class ItemFormScreen extends StatefulWidget {
   const ItemFormScreen({
@@ -417,91 +418,85 @@ class _ItemFormScreenState extends State<ItemFormScreen> {
         if (alternate != null) await _searchCatalog(queryOverride: alternate);
         return;
       }
-      final selected = await showModalBottomSheet<Object>(
+      final selected = await showSelectionSheet<Object>(
         context: context,
-        isScrollControlled: true,
-        builder: (context) => SafeArea(
-          child: SizedBox(
-            height: MediaQuery.sizeOf(context).height * .78,
-            child: Column(
-              children: [
-                Padding(
-                  padding: const EdgeInsets.fromLTRB(20, 0, 20, 8),
-                  child: Column(
-                    children: [
-                      Text(
-                        '为“$query”选择图片',
-                        style: Theme.of(context).textTheme.titleLarge,
-                      ),
-                      const SizedBox(height: 6),
-                      const Text('先选图片，再决定是否使用结果名称'),
-                      TextButton(
-                        onPressed: () => Navigator.pop(context, 'refine'),
-                        child: const Text('换个关键词搜索（不改收藏名称）'),
-                      ),
-                    ],
-                  ),
+        heightFraction: .78,
+        scrollable: false,
+        builder: (context) => CustomScrollView(
+          slivers: [
+            SliverToBoxAdapter(
+              child: Padding(
+                padding: const EdgeInsets.only(bottom: 8),
+                child: Column(
+                  children: [
+                    Text(
+                      '为“$query”选择图片',
+                      style: Theme.of(context).textTheme.titleLarge,
+                    ),
+                    const SizedBox(height: 6),
+                    const Text('先选图片，再决定是否使用结果名称'),
+                    TextButton(
+                      onPressed: () => Navigator.pop(context, 'refine'),
+                      child: const Text('换个关键词搜索（不改收藏名称）'),
+                    ),
+                  ],
                 ),
-                Expanded(
-                  child: GridView.builder(
-                    padding: const EdgeInsets.all(12),
-                    itemCount: results.length,
-                    gridDelegate:
-                        const SliverGridDelegateWithFixedCrossAxisCount(
-                          crossAxisCount: 2,
-                          childAspectRatio: .80,
-                          crossAxisSpacing: 10,
-                          mainAxisSpacing: 10,
-                        ),
-                    itemBuilder: (context, index) {
-                      final result = results[index];
-                      return Card(
-                        clipBehavior: Clip.antiAlias,
-                        child: InkWell(
-                          onTap: () => Navigator.pop(context, result),
-                          child: Column(
-                            crossAxisAlignment: CrossAxisAlignment.stretch,
-                            children: [
-                              Expanded(
-                                child: CatalogCandidateImage(
-                                  candidate: result,
-                                  images: _imageSearch,
-                                ),
-                              ),
-                              Padding(
-                                padding: const EdgeInsets.fromLTRB(8, 6, 8, 2),
-                                child: Text(
-                                  result.title,
-                                  maxLines: 2,
-                                  overflow: TextOverflow.ellipsis,
-                                ),
-                              ),
-                              Padding(
-                                padding: const EdgeInsets.fromLTRB(8, 0, 8, 6),
-                                child: Column(
-                                  crossAxisAlignment: CrossAxisAlignment.start,
-                                  children: [
-                                    Text(
-                                      result.source,
-                                      maxLines: 1,
-                                      overflow: TextOverflow.ellipsis,
-                                      style: Theme.of(context)
-                                          .textTheme
-                                          .labelSmall,
-                                    ),
-                                  ],
-                                ),
-                              ),
-                            ],
-                          ),
-                        ),
-                      );
-                    },
-                  ),
-                ),
-              ],
+              ),
             ),
-          ),
+            SliverPadding(
+              padding: const EdgeInsets.all(12),
+              sliver: SliverGrid(
+                gridDelegate: const SliverGridDelegateWithFixedCrossAxisCount(
+                  crossAxisCount: 2,
+                  childAspectRatio: .80,
+                  crossAxisSpacing: 10,
+                  mainAxisSpacing: 10,
+                ),
+                delegate: SliverChildBuilderDelegate((context, index) {
+                  final result = results[index];
+                  return Card(
+                    clipBehavior: Clip.antiAlias,
+                    child: InkWell(
+                      onTap: () => Navigator.pop(context, result),
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.stretch,
+                        children: [
+                          Expanded(
+                            child: CatalogCandidateImage(
+                              candidate: result,
+                              images: _imageSearch,
+                            ),
+                          ),
+                          Padding(
+                            padding: const EdgeInsets.fromLTRB(8, 6, 8, 2),
+                            child: Text(
+                              result.title,
+                              maxLines: 2,
+                              overflow: TextOverflow.ellipsis,
+                            ),
+                          ),
+                          Padding(
+                            padding: const EdgeInsets.fromLTRB(8, 0, 8, 6),
+                            child: Column(
+                              crossAxisAlignment: CrossAxisAlignment.start,
+                              children: [
+                                Text(
+                                  result.source,
+                                  maxLines: 1,
+                                  overflow: TextOverflow.ellipsis,
+                                  style: Theme.of(context).textTheme.labelSmall,
+                                ),
+                              ],
+                            ),
+                          ),
+                        ],
+                      ),
+                    ),
+                  );
+                }, childCount: results.length),
+              ),
+            ),
+          ],
         ),
       );
       if (selected == 'refine' && mounted) {

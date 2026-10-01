@@ -6,6 +6,7 @@ import '../core/app_ui.dart';
 
 import '../services/cover_image_service.dart';
 import 'private_cover.dart';
+import 'selection_sheet.dart';
 
 class ItemImageSection extends StatelessWidget {
   const ItemImageSection({
@@ -28,36 +29,29 @@ class ItemImageSection extends StatelessWidget {
   final VoidCallback onRemove;
 
   Future<void> _chooseCover(BuildContext context) async {
-    final camera = await showModalBottomSheet<bool>(
+    final camera = await showSelectionSheet<bool>(
       context: context,
-      showDragHandle: true,
-      builder: (context) => SafeArea(
-        child: Padding(
-          padding: const EdgeInsets.fromLTRB(16, 0, 16, 20),
-          child: Column(
-            mainAxisSize: MainAxisSize.min,
-            children: [
-              Text('选择封面', style: Theme.of(context).textTheme.titleLarge),
-              const SizedBox(height: 12),
-              ListTile(
-                shape: RoundedRectangleBorder(
-                  borderRadius: BorderRadius.circular(AppRadius.input),
-                ),
-                leading: const Icon(Icons.photo_library_outlined),
-                title: const Text('从相册选择'),
-                onTap: () => Navigator.pop(context, false),
-              ),
-              ListTile(
-                shape: RoundedRectangleBorder(
-                  borderRadius: BorderRadius.circular(AppRadius.input),
-                ),
-                leading: const Icon(Icons.camera_alt_outlined),
-                title: const Text('拍照识别'),
-                onTap: () => Navigator.pop(context, true),
-              ),
-            ],
+      title: '选择封面',
+      builder: (context) => Column(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          ListTile(
+            shape: RoundedRectangleBorder(
+              borderRadius: BorderRadius.circular(AppRadius.input),
+            ),
+            leading: const Icon(Icons.photo_library_outlined),
+            title: const Text('从相册选择'),
+            onTap: () => Navigator.pop(context, false),
           ),
-        ),
+          ListTile(
+            shape: RoundedRectangleBorder(
+              borderRadius: BorderRadius.circular(AppRadius.input),
+            ),
+            leading: const Icon(Icons.camera_alt_outlined),
+            title: const Text('拍照识别'),
+            onTap: () => Navigator.pop(context, true),
+          ),
+        ],
       ),
     );
     if (camera != null) (camera ? onCamera : onGallery)();

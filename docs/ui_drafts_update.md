@@ -47,3 +47,5 @@
 6. Android 返回手势、编辑保存失败留页、退出登录确认及导入导出的实际等待提示。
 
 实现参考：[Flutter PopScope 文档](https://api.flutter.dev/flutter/widgets/PopScope-class.html)、[path_provider 官方包文档](https://pub.dev/packages/path_provider)、[Supabase Dart signOut 文档](https://supabase.com/docs/reference/dart/auth-signout)。已检查 Supabase 当前 changelog；本轮未修改 Supabase API、鉴权或数据库行为。
+
+后续：用户连接手机后已执行真机验证，并追加统一底部选择面板；验证范围、数据清理及待观察场景见 [2026-10-01 真机报告](phone_test_2026-10-01.md)。

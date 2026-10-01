@@ -1,7 +1,7 @@
 import 'package:flutter/material.dart';
 
 import '../core/app_ui.dart';
-import 'category_chip.dart';
+import 'selection_sheet.dart';
 
 class RoundedChoiceField extends StatelessWidget {
   const RoundedChoiceField({
@@ -30,43 +30,23 @@ class RoundedChoiceField extends StatelessWidget {
       onTap: onChanged == null
           ? null
           : () async {
-              final selected = await showModalBottomSheet<String>(
+              final selected = await showSelectionSheet<String>(
                 context: context,
-                isScrollControlled: true,
-                showDragHandle: true,
-                builder: (context) => SafeArea(
-                  child: Padding(
-                    padding: const EdgeInsets.fromLTRB(20, 0, 20, 24),
-                    child: Column(
-                      mainAxisSize: MainAxisSize.min,
-                      crossAxisAlignment: CrossAxisAlignment.start,
-                      children: [
-                        Text(
-                          label,
-                          style: Theme.of(context).textTheme.titleLarge,
-                        ),
-                        const SizedBox(height: 16),
-                        Flexible(
-                          child: SingleChildScrollView(
-                            child: Wrap(
-                              spacing: 8,
-                              runSpacing: 8,
-                              children: [
-                                for (final option in values)
-                                  CategoryChip(
-                                    label: optionLabel?.call(option) ?? option,
-                                    selected: option == value,
-                                    onTap: () => Navigator.pop(context, option),
-                                  ),
-                              ],
+                title: label,
+                builder: (context) => values.isEmpty
+                    ? const Text('还没有分类，请先点击 + 添加')
+                    : Wrap(
+                        spacing: 8,
+                        runSpacing: 8,
+                        children: [
+                          for (final option in values)
+                            SelectionOption(
+                              label: optionLabel?.call(option) ?? option,
+                              selected: option == value,
+                              onTap: () => Navigator.pop(context, option),
                             ),
-                          ),
-                        ),
-                        if (values.isEmpty) const Text('还没有分类，请先点击 + 添加'),
-                      ],
-                    ),
-                  ),
-                ),
+                        ],
+                      ),
               );
               if (selected != null) onChanged?.call(selected);
             },

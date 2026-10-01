@@ -16,6 +16,7 @@ import '../services/cover_image_service.dart';
 import '../services/local_workspace_store.dart';
 import '../widgets/confirmation_dialog.dart';
 import '../widgets/collection_wall.dart';
+import '../widgets/selection_sheet.dart';
 import 'item_detail_screen.dart';
 import 'item_form_screen.dart';
 import 'settings_screen.dart';
@@ -223,42 +224,27 @@ class _CollectionScreenState extends State<CollectionScreen> {
   }
 
   Future<void> _chooseSort() async {
-    final sort = await showModalBottomSheet<String>(
+    final sort = await showSelectionSheet<String>(
       context: context,
-      showDragHandle: true,
-      isScrollControlled: true,
-      builder: (context) => SafeArea(
-        child: SingleChildScrollView(
-          child: Padding(
-            padding: const EdgeInsets.fromLTRB(16, 0, 16, 20),
-            child: Column(
-              mainAxisSize: MainAxisSize.min,
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                Padding(
-                  padding: const EdgeInsets.fromLTRB(12, 0, 12, 12),
-                  child: Text(
-                    '排序方式',
-                    style: Theme.of(context).textTheme.titleLarge,
-                  ),
-                ),
-                for (final entry in _sortOptions.entries)
-                  ListTile(
-                    shape: RoundedRectangleBorder(
-                      borderRadius: BorderRadius.circular(AppRadius.input),
-                    ),
-                    selected: entry.key == _sort,
-                    selectedTileColor: AppTheme.accent.withValues(alpha: .08),
-                    title: Text(entry.value),
-                    trailing: entry.key == _sort
-                        ? const Icon(Icons.check_rounded)
-                        : null,
-                    onTap: () => Navigator.pop(context, entry.key),
-                  ),
-              ],
+      title: '排序方式',
+      builder: (context) => Column(
+        mainAxisSize: MainAxisSize.min,
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          for (final entry in _sortOptions.entries)
+            ListTile(
+              shape: RoundedRectangleBorder(
+                borderRadius: BorderRadius.circular(AppRadius.input),
+              ),
+              selected: entry.key == _sort,
+              selectedTileColor: AppTheme.accent.withValues(alpha: .08),
+              title: Text(entry.value),
+              trailing: entry.key == _sort
+                  ? const Icon(Icons.check_rounded)
+                  : null,
+              onTap: () => Navigator.pop(context, entry.key),
             ),
-          ),
-        ),
+        ],
       ),
     );
     if (sort != null && mounted) setState(() => _sort = sort);
