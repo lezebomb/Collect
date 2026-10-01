@@ -6,30 +6,102 @@ import '../core/app_theme.dart';
 import '../core/app_ui.dart';
 import '../models/collection_item.dart';
 import '../widgets/section_card.dart';
-import '../widgets/rounded_choice_field.dart';
+import '../widgets/category_chip.dart';
+import '../widgets/monthly_spending_chart.dart';
 
 class StatsScreen extends StatefulWidget {
   const StatsScreen({super.key, required this.items});
   final List<CollectionItem> items;
 
   @override
-  State<StatsScreen> createState() => _StatsScreenState();
+  State<StatsScreen> createState() => StatsScreenState();
 }
 
-class _StatsScreenState extends State<StatsScreen> {
+class StatsScreenState extends State<StatsScreen> {
   String? _category;
   int? _year;
 
-  @override
-  Widget build(BuildContext context) {
-    final categories =
-        widget.items.map((item) => item.category).toSet().toList()..sort();
+  Future<String?> _choose(
+    String title,
+    List<String> values,
+    String selected,
+    String Function(String) label,
+  ) => showModalBottomSheet<String>(
+    context: context,
+    showDragHandle: true,
+    isScrollControlled: true,
+    builder: (context) => SafeArea(
+      child: Padding(
+        padding: const EdgeInsets.fromLTRB(20, 0, 20, 24),
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Text(title, style: Theme.of(context).textTheme.titleLarge),
+            const SizedBox(height: 16),
+            Flexible(
+              child: SingleChildScrollView(
+                child: Wrap(
+                  spacing: 8,
+                  runSpacing: 8,
+                  children: [
+                    for (final value in values)
+                      CategoryChip(
+                        label: label(value),
+                        selected: value == selected,
+                        onTap: () => Navigator.pop(context, value),
+                      ),
+                  ],
+                ),
+              ),
+            ),
+          ],
+        ),
+      ),
+    ),
+  );
+
+  Future<void> chooseCategory() async {
+    final categories = widget.items.map((i) => i.category).toSet().toList()
+      ..sort();
+    final value = await _choose(
+      '筛选分类',
+      ['', ...categories],
+      _category ?? '',
+      (v) => v.isEmpty ? '全部分类' : v,
+    );
+    if (value != null && mounted) {
+      setState(() => _category = value.isEmpty ? null : value);
+    }
+  }
+
+  Future<void> chooseYear() async {
     final years =
         widget.items
-            .map((item) => (item.purchaseDate ?? item.createdAt).year)
+            .map((i) => (i.purchaseDate ?? i.createdAt).year)
             .toSet()
             .toList()
           ..sort((a, b) => b.compareTo(a));
+    final value = await _choose(
+      '筛选年份',
+      ['', ...years.map((v) => '$v')],
+      _year?.toString() ?? '',
+      (v) => v.isEmpty ? '全部年份' : '$v 年',
+    );
+    if (value != null && mounted) setState(() => _year = int.tryParse(value));
+  }
+
+  static const _barColors = [
+    Color(0xFF5E9F88),
+    Color(0xFF6B9DCE),
+    Color(0xFFE2A05E),
+    Color(0xFFB18BC4),
+    Color(0xFFD77F8D),
+    Color(0xFF71AFB9),
+  ];
+
+  @override
+  Widget build(BuildContext context) {
     final filtered = widget.items.where((item) {
       if (_category != null && item.category != _category) return false;
       if (_year != null &&
@@ -45,46 +117,20 @@ class _StatsScreenState extends State<StatsScreen> {
         child: ListView(
           padding: AppSpacing.page,
           children: [
-            Text(
-              '收藏的足迹',
-              style: Theme.of(context).textTheme.headlineMedium
-                  ?.copyWith(fontWeight: FontWeight.bold),
-            ),
-            const SizedBox(height: AppSpacing.xs),
-            Text('每一件喜欢，都有迹可循。', style: Theme.of(context).textTheme.bodySmall),
-            const SizedBox(height: 16),
-            Row(
-              children: [
-                Expanded(
-                  child: RoundedChoiceField(
-                    label: '分类',
-                    value: _category ?? '',
-                    values: ['', ...categories],
-                    optionLabel: (v) => v.isEmpty ? '全部分类' : v,
-                    onChanged: (v) =>
-                        setState(() => _category = v == '' ? null : v),
-                  ),
-                ),
-                const SizedBox(width: AppSpacing.md),
-                Expanded(
-                  child: RoundedChoiceField(
-                    label: '年份',
-                    value: _year?.toString() ?? '',
-                    values: ['', ...years.map((v) => '$v')],
-                    optionLabel: (v) => v.isEmpty ? '全部年份' : '$v 年',
-                    onChanged: (v) =>
-                        setState(() => _year = int.tryParse(v ?? '')),
-                  ),
-                ),
-              ],
-            ),
-            const SizedBox(height: 16),
+            if (_category != null || _year != null) ...[
+              Text(
+                '${_category ?? '全部分类'} · ${_year == null ? '全部年份' : '$_year 年'}',
+                style: Theme.of(context).textTheme.bodySmall,
+              ),
+              const SizedBox(height: 12),
+            ],
+
             Row(
               children: [
                 Expanded(
                   child: _summary(
                     context,
-                    '总投入',
+                    '藏品价值',
                     money(stats.totalInvestment, 'CNY'),
                     '${stats.items.length} 件物品',
                   ),
@@ -93,7 +139,7 @@ class _StatsScreenState extends State<StatsScreen> {
                 Expanded(
                   child: _summary(
                     context,
-                    '在手物品',
+                    '藏品数量',
                     '${stats.inHand.length}',
                     '购入金额 ${money(stats.inHandValue, 'CNY')}',
                   ),
@@ -119,7 +165,11 @@ class _StatsScreenState extends State<StatsScreen> {
                 moneyLabels: false,
               ),
             ),
-            _panel(context, '月度消费趋势', _monthly(stats.monthlySpending)),
+            _panel(
+              context,
+              '月度消费趋势',
+              MonthlySpendingChart(values: stats.monthlySpending, year: _year),
+            ),
             if (_category == null || _category == '游戏')
               _panel(
                 context,
@@ -183,7 +233,7 @@ class _StatsScreenState extends State<StatsScreen> {
       ..sort((a, b) => b.value.compareTo(a.value));
     return Column(
       children: [
-        for (final entry in sorted)
+        for (final (index, entry) in sorted.indexed)
           Padding(
             padding: const EdgeInsets.only(bottom: AppSpacing.lg),
             child: Column(
@@ -204,56 +254,18 @@ class _StatsScreenState extends State<StatsScreen> {
                 ),
                 const SizedBox(height: AppSpacing.sm),
                 LinearProgressIndicator(
+                  color: index < _barColors.length
+                      ? _barColors[index]
+                      : HSLColor.fromAHSL(
+                          1,
+                          (index * 137.5) % 360,
+                          .4,
+                          .56,
+                        ).toColor(),
+                  backgroundColor: const Color(0xFFF0F2EF),
                   value: total == 0 ? 0 : (entry.value / total).clamp(0, 1),
                   minHeight: 8,
                   borderRadius: BorderRadius.circular(AppRadius.pill),
-                ),
-              ],
-            ),
-          ),
-      ],
-    );
-  }
-
-  Widget _monthly(Map<String, double> values) {
-    if (values.isEmpty) return const Text('暂无数据');
-    final months = values.keys.toList()..sort();
-    final recent = months.length > 12
-        ? months.sublist(months.length - 12)
-        : months;
-    final max = recent
-        .map((month) => values[month]!)
-        .reduce((a, b) => a > b ? a : b);
-    return Column(
-      children: [
-        for (final month in recent)
-          Padding(
-            padding: const EdgeInsets.only(bottom: AppSpacing.lg),
-            child: Column(
-              children: [
-                Row(
-                  children: [
-                    Expanded(child: Text(month)),
-                    Expanded(
-                      child: Text(
-                        money(values[month]!, 'CNY'),
-                        textAlign: TextAlign.end,
-                        style: Theme.of(context).textTheme.bodySmall,
-                      ),
-                    ),
-                  ],
-                ),
-                const SizedBox(height: AppSpacing.sm),
-                Row(
-                  children: [
-                    Expanded(
-                      child: LinearProgressIndicator(
-                        value: max == 0 ? 0 : values[month]! / max,
-                        minHeight: 8,
-                        borderRadius: BorderRadius.circular(AppRadius.pill),
-                      ),
-                    ),
-                  ],
                 ),
               ],
             ),

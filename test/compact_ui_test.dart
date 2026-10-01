@@ -235,7 +235,7 @@ void main() {
         isTrue,
       );
       expect(find.text('正在更新，请稍候…'), findsNothing);
-      await tester.tap(find.text('展示每天花费'));
+      await tester.tap(find.text('展示日均价格'));
       await tester.pump();
       expect(repository.requests.length, 1);
       repository.replies.first.complete(repository.requests.first);
@@ -251,6 +251,9 @@ void main() {
       expect(switches[0].value, isTrue);
       expect(switches[2].value, isFalse);
       await tester.drag(find.byType(ListView), const Offset(0, -380));
+      await tester.pump();
+      expect(find.byTooltip('删除游戏分类'), findsNothing);
+      await tester.tap(find.byTooltip('删除分类'));
       await tester.pump();
       await tester.tap(find.byTooltip('删除游戏分类'));
       await tester.pump();

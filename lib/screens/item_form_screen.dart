@@ -1,8 +1,8 @@
 import 'dart:typed_data';
+import 'dart:convert';
 
 import 'package:flutter/material.dart';
 import 'package:image_picker/image_picker.dart';
-import 'package:supabase_flutter/supabase_flutter.dart';
 import 'package:uuid/uuid.dart';
 
 import '../core/app_ui.dart';
@@ -11,6 +11,7 @@ import '../models/collection_item.dart';
 import '../repositories/item_repository.dart';
 import '../repositories/preferences_repository.dart';
 import '../services/cover_image_service.dart';
+import '../services/local_workspace_store.dart';
 import '../services/currency_rate_service.dart';
 import '../services/game_search_service.dart';
 import '../services/image_search_service.dart';
@@ -26,6 +27,7 @@ import '../widgets/catalog_selection_dialog.dart';
 import '../widgets/loading_overlay.dart';
 import '../widgets/section_card.dart';
 import '../widgets/rounded_choice_field.dart';
+import '../widgets/confirmation_dialog.dart';
 
 class ItemFormScreen extends StatefulWidget {
   const ItemFormScreen({
@@ -34,12 +36,14 @@ class ItemFormScreen extends StatefulWidget {
     required this.images,
     required this.preferences,
     this.initial,
+    this.drafts,
   });
 
   final ItemRepository repository;
   final CoverImageService images;
   final PreferencesRepository preferences;
   final CollectionItem? initial;
+  final LocalWorkspaceStore? drafts;
 
   @override
   State<ItemFormScreen> createState() => _ItemFormScreenState();
@@ -50,8 +54,8 @@ class _ItemFormScreenState extends State<ItemFormScreen> {
   final _picker = ImagePicker();
   final _games = GameSearchService();
   final _products = ProductSearchService();
-  final _imageSearch = ImageSearchService(
-    tavily: TavilySearchService(Supabase.instance.client),
+  late final _imageSearch = ImageSearchService(
+    tavily: TavilySearchService(widget.repository.client),
   );
   final _ocr = OcrService();
   final _rates = CurrencyRateService();
@@ -81,6 +85,140 @@ class _ItemFormScreenState extends State<ItemFormScreen> {
   bool _busy = false;
   String? _loadingMessage;
   bool _categoriesLoading = true;
+  late final _drafts = widget.drafts ?? LocalWorkspaceStore();
+  late final String _owner = widget.preferences.userId;
+  late Map<String, dynamic> _baseline;
+  bool _allowPop = false;
+  bool _leaving = false;
+  bool _restoredDraft = false;
+
+  Map<String, dynamic> _fields() => {
+    'name': _name.text,
+    'description': _description.text,
+    'price': _price.text,
+    'price_cny': _priceCny.text,
+    'category': _category,
+    'currency': _currency,
+    'platform': _platform,
+    'content_type': _contentType,
+    'edition': _edition,
+    'play_status': _playStatus,
+    'purchase_date': _purchaseDate?.toIso8601String(),
+    'remove_cover': _removeCover,
+    'cover_identity': _newCover == null ? null : identityHashCode(_newCover),
+  };
+
+  bool get _dirty => jsonEncode(_fields()) != jsonEncode(_baseline);
+
+  Future<void> _initializeForm() async {
+    await _loadCategories();
+    if (!mounted) return;
+    _baseline = _fields();
+    if (widget.initial == null) {
+      try {
+        final draft = await _drafts.loadDraft(_owner);
+        if (draft != null && mounted) {
+          final encodedCover = draft['cover_bytes'] as String?;
+          final bytes = encodedCover == null
+              ? null
+              : base64Decode(encodedCover);
+          if (bytes != null && bytes.length > CoverImageService.maxBytes) {
+            throw const FormatException('草稿封面超过 10 MB');
+          }
+          setState(() {
+            _name.text = draft['name'] as String? ?? '';
+            _description.text = draft['description'] as String? ?? '';
+            _price.text = draft['price'] as String? ?? '';
+            _priceCny.text = draft['price_cny'] as String? ?? '';
+            _category = draft['category'] as String?;
+            _currency = draft['currency'] as String? ?? 'CNY';
+            _platform = draft['platform'] as String?;
+            _contentType = draft['content_type'] as String?;
+            _edition = draft['edition'] as String?;
+            _playStatus = draft['play_status'] as String?;
+            _purchaseDate = DateTime.tryParse(
+              draft['purchase_date'] as String? ?? '',
+            );
+            _removeCover = draft['remove_cover'] == true;
+            if (_category != null && !_categories.contains(_category)) {
+              _categories = [..._categories, _category!];
+            }
+            _preview = bytes;
+            _newCover = bytes == null
+                ? null
+                : XFile.fromData(
+                    bytes,
+                    path: draft['cover_name'] as String? ?? 'draft.jpg',
+                    mimeType: draft['cover_mime'] as String?,
+                  );
+            _restoredDraft = true;
+          });
+        }
+      } catch (error) {
+        if (mounted) _message('读取草稿失败，原草稿仍保留：$error');
+      }
+    }
+    if (mounted) {
+      _endLoading();
+      await _recoverLostImage();
+    }
+  }
+
+  Future<void> _close([CollectionItem? saved]) async {
+    if (!mounted) return;
+    setState(() => _allowPop = true);
+    // Let PopScope publish canPop before asking Navigator to close the route.
+    await WidgetsBinding.instance.endOfFrame;
+    if (mounted) Navigator.of(context).pop(saved);
+  }
+
+  Future<void> _leave() async {
+    if (_busy || _leaving || _allowPop) return;
+    _leaving = true;
+    try {
+      if (!_dirty && !_restoredDraft) {
+        await _close();
+        return;
+      }
+      FocusScope.of(context).unfocus();
+      final save = await confirmAction(
+        context,
+        title: widget.initial == null ? '是否要保存至草稿箱' : '是否保存修改',
+        confirm: '保存',
+        cancel: '不保存',
+      );
+      if (save == null || !mounted) return;
+      if (widget.initial != null) {
+        if (save) {
+          await _save();
+        } else {
+          await _close();
+        }
+        return;
+      }
+      _beginLoading(save ? '正在保存草稿，请稍候...' : '正在移除草稿，请稍候...');
+      try {
+        if (save) {
+          await _drafts.saveDraft(_owner, {
+            ..._fields()..remove('cover_identity'),
+            'version': 1,
+            if (_preview != null) 'cover_bytes': base64Encode(_preview!),
+            if (_newCover != null) 'cover_name': _newCover!.name,
+            if (_newCover?.mimeType != null) 'cover_mime': _newCover!.mimeType,
+          });
+        } else {
+          await _drafts.clearDraft(_owner);
+        }
+        await _close();
+      } catch (error) {
+        if (mounted) _message('草稿处理失败，当前内容仍保留：$error');
+      } finally {
+        _endLoading();
+      }
+    } finally {
+      _leaving = false;
+    }
+  }
 
   void _beginLoading(String message) => setState(() {
     _busy = true;
@@ -99,8 +237,10 @@ class _ItemFormScreenState extends State<ItemFormScreen> {
   @override
   void initState() {
     super.initState();
-    _loadCategories();
-    _recoverLostImage();
+    _baseline = _fields();
+    _busy = true;
+    _loadingMessage = widget.initial == null ? '正在读取草稿…' : '正在读取收藏…';
+    _initializeForm();
   }
 
   Future<void> _loadCategories() async {
@@ -515,6 +655,7 @@ class _ItemFormScreenState extends State<ItemFormScreen> {
   }
 
   Future<void> _save() async {
+    if (_busy || _allowPop) return;
     if (!_formKey.currentState!.validate()) return;
     final price = _price.text.trim().isEmpty
         ? null
@@ -536,9 +677,9 @@ class _ItemFormScreenState extends State<ItemFormScreen> {
       _message('请填写人民币折算金额，用于统计');
       return;
     }
-    final user = Supabase.instance.client.auth.currentUser;
+    final user = widget.repository.client.auth.currentUser;
     if (user == null) return;
-    _beginLoading('正在保存收藏…');
+    _beginLoading(widget.initial == null ? '正在保存收藏…' : '正在保存修改…');
     final item = CollectionItem(
       id: widget.initial?.id ?? const Uuid().v4(),
       userId: user.id,
@@ -564,7 +705,14 @@ class _ItemFormScreenState extends State<ItemFormScreen> {
               newCover: _newCover,
               removeCover: _removeCover,
             );
-      if (mounted) Navigator.of(context).pop(saved);
+      if (widget.initial == null) {
+        try {
+          await _drafts.clearDraft(_owner);
+        } catch (error) {
+          if (mounted) _message('收藏已保存，但草稿清理失败：$error');
+        }
+      }
+      await _close(saved);
     } catch (error) {
       if (mounted) _message('保存失败：$error');
     } finally {
@@ -595,161 +743,179 @@ class _ItemFormScreenState extends State<ItemFormScreen> {
   );
 
   @override
-  Widget build(BuildContext context) => Scaffold(
-    appBar: AppBar(title: Text(widget.initial == null ? '添加收藏' : '编辑收藏')),
-    body: LoadingOverlay(
-      loading: _loadingMessage == '正在保存收藏…',
-      message: _loadingMessage ?? '正在处理…',
-      child: Form(
-        key: _formKey,
-        child: Center(
-          child: ConstrainedBox(
-            constraints: const BoxConstraints(maxWidth: 620),
-            child: ListView(
-              padding: AppSpacing.page,
-              keyboardDismissBehavior: ScrollViewKeyboardDismissBehavior.onDrag,
-              children: [
-                if (_loadingMessage != null && _loadingMessage != '正在保存收藏…')
-                  Padding(
-                    padding: const EdgeInsets.only(bottom: 12),
+  Widget build(BuildContext context) => PopScope<CollectionItem>(
+    canPop: _allowPop,
+    onPopInvokedWithResult: (didPop, result) {
+      if (!didPop) _leave();
+    },
+    child: Scaffold(
+      appBar: AppBar(
+        leading: BackButton(onPressed: _leave),
+        title: Text(widget.initial == null ? '添加收藏' : '编辑收藏'),
+      ),
+      body: LoadingOverlay(
+        loading: _loadingMessage == '正在保存收藏…' || _loadingMessage == '正在保存修改…',
+        message: _loadingMessage ?? '正在保存收藏…',
+        child: Form(
+          key: _formKey,
+          child: Center(
+            child: ConstrainedBox(
+              constraints: const BoxConstraints(maxWidth: 620),
+              child: ListView(
+                padding: AppSpacing.page,
+                keyboardDismissBehavior:
+                    ScrollViewKeyboardDismissBehavior.onDrag,
+                children: [
+                  if (_loadingMessage != null &&
+                      _loadingMessage != '正在保存收藏…' &&
+                      _loadingMessage != '正在保存修改…')
+                    Padding(
+                      padding: const EdgeInsets.only(bottom: 12),
+                      child: Column(
+                        children: [
+                          const LinearProgressIndicator(minHeight: 2),
+                          const SizedBox(height: 6),
+                          Text(
+                            _loadingMessage!,
+                            style: Theme.of(context).textTheme.bodySmall,
+                          ),
+                        ],
+                      ),
+                    ),
+                  if (_categoriesLoading)
+                    const Padding(
+                      padding: EdgeInsets.only(bottom: 12),
+                      child: LinearProgressIndicator(),
+                    ),
+                  ItemImageSection(
+                    preview: _preview,
+                    imageUrl: _removeCover ? null : widget.initial?.coverImage,
+                    images: widget.images,
+                    busy: _busy,
+                    onGallery: () => _pickCover(ImageSource.gallery),
+                    onCamera: () => _pickCover(ImageSource.camera),
+                    onRemove: () => setState(() {
+                      _newCover = null;
+                      _preview = null;
+                      _removeCover = true;
+                    }),
+                  ),
+                  const SizedBox(height: AppSpacing.lg),
+                  SectionCard(
+                    title: '基本信息',
+                    icon: Icons.bookmark_outline_rounded,
                     child: Column(
                       children: [
-                        const LinearProgressIndicator(minHeight: 2),
-                        const SizedBox(height: 6),
-                        Text(
-                          _loadingMessage!,
-                          style: Theme.of(context).textTheme.bodySmall,
+                        TextFormField(
+                          enabled: !_busy,
+                          controller: _name,
+                          maxLength: 120,
+                          decoration: InputDecoration(
+                            labelText: '名称',
+                            suffixIcon: IconButton(
+                              tooltip: '搜索资料',
+                              icon: _busy && _loadingMessage != null
+                                  ? const SizedBox(
+                                      width: 20,
+                                      height: 20,
+                                      child: CircularProgressIndicator(
+                                        strokeWidth: 2,
+                                      ),
+                                    )
+                                  : const Icon(Icons.search),
+                              onPressed: _busy ? null : () => _searchCatalog(),
+                            ),
+                          ),
+                          validator: (v) =>
+                              v == null || v.trim().isEmpty ? '请输入名称' : null,
+                        ),
+                        const SizedBox(height: 10),
+                        Row(
+                          children: [
+                            Expanded(
+                              child: _choice(
+                                '分类',
+                                _category,
+                                _categories,
+                                (v) =>
+                                    setState(() => _category = v ?? _category),
+                              ),
+                            ),
+                            IconButton(
+                              tooltip: '添加分类',
+                              onPressed: _busy ? null : _addCategory,
+                              icon: const Icon(Icons.add_circle_outline),
+                            ),
+                          ],
                         ),
                       ],
                     ),
                   ),
-                if (_categoriesLoading)
-                  const Padding(
-                    padding: EdgeInsets.only(bottom: 12),
-                    child: LinearProgressIndicator(),
-                  ),
-                ItemImageSection(
-                  preview: _preview,
-                  imageUrl: _removeCover ? null : widget.initial?.coverImage,
-                  images: widget.images,
-                  busy: _busy,
-                  onGallery: () => _pickCover(ImageSource.gallery),
-                  onCamera: () => _pickCover(ImageSource.camera),
-                  onRemove: () => setState(() {
-                    _newCover = null;
-                    _preview = null;
-                    _removeCover = true;
-                  }),
-                ),
-                const SizedBox(height: AppSpacing.lg),
-                SectionCard(
-                  title: '基本信息',
-                  icon: Icons.bookmark_outline_rounded,
-                  child: Column(
-                    children: [
-                      TextFormField(
-                        enabled: !_busy,
-                        controller: _name,
-                        maxLength: 120,
-                        decoration: InputDecoration(
-                          labelText: '名称',
-                          suffixIcon: IconButton(
-                            tooltip: '搜索资料',
-                            icon: _busy && _loadingMessage != null
-                                ? const SizedBox(
-                                    width: 20,
-                                    height: 20,
-                                    child: CircularProgressIndicator(
-                                      strokeWidth: 2,
-                                    ),
-                                  )
-                                : const Icon(Icons.search),
-                            onPressed: _busy ? null : () => _searchCatalog(),
-                          ),
+                  if (_category == '游戏')
+                    Padding(
+                      padding: const EdgeInsets.only(top: AppSpacing.lg),
+                      child: SectionCard(
+                        title: '游戏信息',
+                        icon: Icons.sports_esports_outlined,
+                        child: ItemGameSection(
+                          platform: _platform,
+                          contentType: _contentType,
+                          edition: _edition,
+                          playStatus: _playStatus,
+                          busy: _busy,
+                          onPlatform: (v) => setState(() => _platform = v),
+                          onContentType: (v) =>
+                              setState(() => _contentType = v),
+                          onEdition: (v) => setState(() => _edition = v),
+                          onPlayStatus: (v) => setState(() => _playStatus = v),
                         ),
-                        validator: (v) =>
-                            v == null || v.trim().isEmpty ? '请输入名称' : null,
                       ),
-                      const SizedBox(height: 10),
-                      Row(
-                        children: [
-                          Expanded(
-                            child: _choice(
-                              '分类',
-                              _category,
-                              _categories,
-                              (v) => setState(() => _category = v ?? _category),
-                            ),
-                          ),
-                          IconButton(
-                            tooltip: '添加分类',
-                            onPressed: _busy ? null : _addCategory,
-                            icon: const Icon(Icons.add_circle_outline),
-                          ),
-                        ],
-                      ),
-                    ],
+                    ),
+                  const SizedBox(height: AppSpacing.lg),
+                  SectionCard(
+                    title: '价格信息',
+                    icon: Icons.payments_outlined,
+                    child: ItemPriceSection(
+                      purchaseDate: _purchaseDate,
+                      price: _price,
+                      priceCny: _priceCny,
+                      currency: _currency,
+                      busy: _busy,
+                      onChooseDate: _chooseDate,
+                      onClearDate: () => setState(() => _purchaseDate = null),
+                      onCurrency: (v) => setState(() => _currency = v ?? 'CNY'),
+                      onEstimateCny: _estimateCny,
+                    ),
                   ),
-                ),
-                if (_category == '游戏')
-                  Padding(
-                    padding: const EdgeInsets.only(top: AppSpacing.lg),
-                    child: SectionCard(
-                      title: '游戏信息',
-                      icon: Icons.sports_esports_outlined,
-                      child: ItemGameSection(
-                        platform: _platform,
-                        contentType: _contentType,
-                        edition: _edition,
-                        playStatus: _playStatus,
-                        busy: _busy,
-                        onPlatform: (v) => setState(() => _platform = v),
-                        onContentType: (v) => setState(() => _contentType = v),
-                        onEdition: (v) => setState(() => _edition = v),
-                        onPlayStatus: (v) => setState(() => _playStatus = v),
+                  const SizedBox(height: AppSpacing.lg),
+                  SectionCard(
+                    title: '简介',
+                    icon: Icons.notes_rounded,
+                    child: TextFormField(
+                      enabled: !_busy,
+                      controller: _description,
+                      maxLines: 4,
+                      maxLength: 3000,
+                      decoration: const InputDecoration(
+                        hintText: '写下它的来历，或你喜欢它的理由…',
+                        alignLabelWithHint: true,
                       ),
                     ),
                   ),
-                const SizedBox(height: AppSpacing.lg),
-                SectionCard(
-                  title: '价格信息',
-                  icon: Icons.payments_outlined,
-                  child: ItemPriceSection(
-                    purchaseDate: _purchaseDate,
-                    price: _price,
-                    priceCny: _priceCny,
-                    currency: _currency,
-                    busy: _busy,
-                    onChooseDate: _chooseDate,
-                    onClearDate: () => setState(() => _purchaseDate = null),
-                    onCurrency: (v) => setState(() => _currency = v ?? 'CNY'),
-                    onEstimateCny: _estimateCny,
-                  ),
-                ),
-                const SizedBox(height: AppSpacing.lg),
-                SectionCard(
-                  title: '描述 / 故事',
-                  icon: Icons.notes_rounded,
-                  child: TextFormField(
-                    enabled: !_busy,
-                    controller: _description,
-                    maxLines: 4,
-                    maxLength: 3000,
-                    decoration: const InputDecoration(
-                      hintText: '写下它的来历，或你喜欢它的理由…',
-                      alignLabelWithHint: true,
+                  const SizedBox(height: 18),
+                  FilledButton(
+                    onPressed: _busy ? null : _save,
+                    child: LoadingButtonLabel(
+                      loading: _busy,
+                      label: _busy
+                          ? (_loadingMessage ?? '正在选择图片…')
+                          : widget.initial == null
+                          ? '保存到收藏柜'
+                          : '保存修改',
                     ),
                   ),
-                ),
-                const SizedBox(height: 18),
-                FilledButton(
-                  onPressed: _busy ? null : _save,
-                  child: LoadingButtonLabel(
-                    loading: _busy,
-                    label: _busy ? '正在处理…' : '保存到收藏柜',
-                  ),
-                ),
-              ],
+                ],
+              ),
             ),
           ),
         ),

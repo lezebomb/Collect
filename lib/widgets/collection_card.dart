@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 
 import '../core/app_theme.dart';
 import '../core/app_ui.dart';
+import '../core/price_display.dart';
 import '../models/collection_item.dart';
 import '../models/user_preferences.dart';
 import '../core/collection_options.dart';
@@ -16,12 +17,14 @@ class CollectionCard extends StatelessWidget {
     required this.images,
     required this.onTap,
     required this.preferences,
+    this.priceDisplay = PriceDisplay.original,
   });
 
   final CollectionItem item;
   final CoverImageService images;
   final VoidCallback onTap;
   final UserPreferences preferences;
+  final PriceDisplay priceDisplay;
 
   @override
   Widget build(BuildContext context) => Container(
@@ -106,9 +109,16 @@ class CollectionCard extends StatelessWidget {
                       child: Text(
                         [
                           if (preferences.showPrice)
-                            money(item.price!, item.currency),
+                            displayedPrice(item, priceDisplay).amount == null
+                                ? 'CNY 未折算'
+                                : money(
+                                    displayedPrice(item, priceDisplay).amount!,
+                                    displayedPrice(item, priceDisplay).currency,
+                                  ),
                           if (preferences.showDailyCost)
-                            '${money(item.price! / (item.ownedDays == 0 ? 1 : item.ownedDays), item.currency)}/天',
+                            displayedPrice(item, priceDisplay).amount == null
+                                ? '日均价格未折算'
+                                : '${money(displayedPrice(item, priceDisplay).amount! / (item.ownedDays == 0 ? 1 : item.ownedDays), displayedPrice(item, priceDisplay).currency)}/天',
                         ].join(' · '),
                         style: const TextStyle(
                           fontSize: 11,

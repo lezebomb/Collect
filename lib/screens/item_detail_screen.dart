@@ -101,7 +101,16 @@ class _ItemDetailScreenState extends State<ItemDetailScreen> {
       ],
     ),
     body: _deleting
-        ? const Center(child: CircularProgressIndicator())
+        ? const Center(
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                CircularProgressIndicator(),
+                SizedBox(height: 16),
+                Text('正在删除收藏，请稍候...'),
+              ],
+            ),
+          )
         : SingleChildScrollView(
             padding: AppSpacing.page,
             child: Center(

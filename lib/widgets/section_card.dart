@@ -8,12 +8,14 @@ class SectionCard extends StatelessWidget {
     required this.title,
     required this.child,
     this.icon,
+    this.leading,
     this.trailing,
   });
 
   final String title;
   final Widget child;
   final IconData? icon;
+  final Widget? leading;
   final Widget? trailing;
 
   @override
@@ -25,12 +27,13 @@ class SectionCard extends StatelessWidget {
         children: [
           Row(
             children: [
-              if (icon != null) ...[
-                Icon(
-                  icon,
-                  size: 20,
-                  color: Theme.of(context).colorScheme.primary,
-                ),
+              if (icon != null || leading != null) ...[
+                leading ??
+                    Icon(
+                      icon,
+                      size: 20,
+                      color: Theme.of(context).colorScheme.primary,
+                    ),
                 const SizedBox(width: AppSpacing.sm),
               ],
               Expanded(

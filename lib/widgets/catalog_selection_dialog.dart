@@ -40,7 +40,7 @@ class _CatalogSelectionDialogState extends State<CatalogSelectionDialog> {
           ),
           const SizedBox(height: 8),
           Text(
-            '默认保留你填写的名称。描述 / 故事由你自己书写。',
+            '默认保留你填写的名称。简介由你自己填写。',
             style: Theme.of(context).textTheme.bodySmall,
           ),
         ],

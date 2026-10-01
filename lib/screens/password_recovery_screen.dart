@@ -22,6 +22,7 @@ class _PasswordRecoveryScreenState extends State<PasswordRecoveryScreen> {
   final _password = TextEditingController();
   final _confirm = TextEditingController();
   bool _busy = false;
+  String _loadingMessage = '';
   String? _error;
 
   @override
@@ -35,6 +36,7 @@ class _PasswordRecoveryScreenState extends State<PasswordRecoveryScreen> {
     if (!_form.currentState!.validate()) return;
     setState(() {
       _busy = true;
+      _loadingMessage = '正在保存新密码，请稍候...';
       _error = null;
     });
     try {
@@ -50,7 +52,10 @@ class _PasswordRecoveryScreenState extends State<PasswordRecoveryScreen> {
   }
 
   Future<void> _cancel() async {
-    setState(() => _busy = true);
+    setState(() {
+      _busy = true;
+      _loadingMessage = '正在退出登录，请稍候...';
+    });
     try {
       await widget.auth.signOut();
       if (mounted) widget.onComplete();
@@ -107,7 +112,7 @@ class _PasswordRecoveryScreenState extends State<PasswordRecoveryScreen> {
                   onPressed: _busy ? null : _save,
                   child: LoadingButtonLabel(
                     loading: _busy,
-                    label: _busy ? '请稍候…' : '保存新密码',
+                    label: _busy ? _loadingMessage : '保存新密码',
                   ),
                 ),
                 TextButton(

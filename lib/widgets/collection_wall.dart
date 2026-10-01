@@ -3,13 +3,12 @@ import 'dart:math' as math;
 import 'package:flutter/material.dart';
 
 import '../core/app_theme.dart';
-import '../core/app_ui.dart';
+import '../core/price_display.dart';
 import '../models/collection_item.dart';
 import '../models/user_preferences.dart';
 import '../services/cover_image_service.dart';
 import 'category_chip.dart';
 import 'collection_card.dart';
-import 'private_cover.dart';
 
 class CollectionWall extends StatelessWidget {
   const CollectionWall({
@@ -27,12 +26,14 @@ class CollectionWall extends StatelessWidget {
     required this.onCategory,
     required this.onOpen,
     required this.onRefresh,
+    this.priceDisplay = PriceDisplay.original,
   });
   final List<CollectionItem> items;
   final int total;
   final List<String> categories;
   final String? category;
   final UserPreferences preferences;
+  final PriceDisplay priceDisplay;
   final CoverImageService images;
   final TextEditingController search;
   final bool searchExpanded;
@@ -59,10 +60,7 @@ class CollectionWall extends StatelessWidget {
           (preferences.showPrice || preferences.showDailyCost) &&
           items.any((i) => i.price != null);
       final textHeight = (price ? 82.0 : 66.0) * scale;
-      final headerHeight =
-          76 +
-          (searchExpanded ? 64 : 0) +
-          (preferences.wallpaperUrl != null ? 88 : 0);
+      final headerHeight = 76 + (searchExpanded ? 64 : 0);
       // Fit three rows when practical; large accessibility text keeps enough cover space.
       final desired = (constraints.maxHeight - headerHeight - 16 - 16) / 3;
       final cardHeight = math.max(
@@ -92,22 +90,6 @@ class CollectionWall extends StatelessWidget {
                         tooltip: '收起搜索',
                         onPressed: onCloseSearch,
                         icon: const Icon(Icons.close_rounded),
-                      ),
-                    ),
-                  ),
-                ),
-              ),
-            if (preferences.wallpaperUrl != null)
-              SliverToBoxAdapter(
-                child: Padding(
-                  padding: const EdgeInsets.fromLTRB(16, 0, 16, 8),
-                  child: ClipRRect(
-                    borderRadius: BorderRadius.circular(AppRadius.card),
-                    child: SizedBox(
-                      height: 80,
-                      child: PrivateCover(
-                        imageUrl: preferences.wallpaperUrl,
-                        images: images,
                       ),
                     ),
                   ),
@@ -173,6 +155,7 @@ class CollectionWall extends StatelessWidget {
                     item: items[index],
                     images: images,
                     preferences: preferences,
+                    priceDisplay: priceDisplay,
                     onTap: () => onOpen(items[index]),
                   ),
                 ),

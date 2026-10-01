@@ -20,6 +20,7 @@ class _AuthScreenState extends State<AuthScreen> {
   final _password = TextEditingController();
   bool _register = false;
   bool _busy = false;
+  String _loadingMessage = '';
   String? _message;
 
   @override
@@ -33,6 +34,7 @@ class _AuthScreenState extends State<AuthScreen> {
     if (!_formKey.currentState!.validate()) return;
     setState(() {
       _busy = true;
+      _loadingMessage = _register ? '正在创建账号，请稍候...' : '正在登录，请稍候...';
       _message = null;
     });
     try {
@@ -87,6 +89,7 @@ class _AuthScreenState extends State<AuthScreen> {
     }
     setState(() {
       _busy = true;
+      _loadingMessage = '正在发送重置邮件，请稍候...';
       _message = null;
     });
     try {
@@ -184,7 +187,7 @@ class _AuthScreenState extends State<AuthScreen> {
                       child: LoadingButtonLabel(
                         loading: _busy,
                         label: _busy
-                            ? '请稍候…'
+                            ? _loadingMessage
                             : _register
                             ? '注册并开始收藏'
                             : '登录我的收藏柜',

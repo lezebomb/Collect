@@ -19,7 +19,7 @@
 
 更新 Android 启动图标、系统显示名称与 Flutter 应用标题为 **Dearshelf**。保留原 applicationId、namespace、Dart package name、密码恢复链接、业务逻辑、数据库与备份格式。使用覆盖安装保留已有登录状态与收藏。
 
-首页“收藏柜”仍是页面功能名称，不将中文正文整体替换为英文。iOS 资源不在本次 Android 真机更新范围内。
+该图标安装阶段首页沿用“收藏柜”；后续已按用户要求改为 Dearshelf，见 [界面与草稿更新记录](ui_drafts_update.md)。中文功能正文保持原有语言。iOS 资源不在本次 Android 真机更新范围内。
 
 原研究与概念文档保留为阶段性研究记录；本文件记录最新选择。
 

@@ -5,6 +5,7 @@ import 'package:supabase_flutter/supabase_flutter.dart';
 
 import '../core/app_theme.dart';
 import '../core/app_ui.dart';
+import '../core/price_display.dart';
 import '../models/collection_item.dart';
 import '../models/user_preferences.dart';
 import '../repositories/item_repository.dart';
@@ -12,6 +13,8 @@ import '../repositories/preferences_repository.dart';
 import '../services/auth_service.dart';
 import '../services/backup_service.dart';
 import '../services/cover_image_service.dart';
+import '../services/local_workspace_store.dart';
+import '../widgets/confirmation_dialog.dart';
 import '../widgets/collection_wall.dart';
 import 'item_detail_screen.dart';
 import 'item_form_screen.dart';
@@ -52,6 +55,9 @@ class _CollectionScreenState extends State<CollectionScreen> {
     _images,
   );
   late final _auth = AuthService(_client);
+  final _local = LocalWorkspaceStore();
+  final _statsKey = GlobalKey<StatsScreenState>();
+  PriceDisplay _priceDisplay = PriceDisplay.original;
   late Future<_HomeData> _data = _load();
   _HomeData? _current;
   final _search = TextEditingController();
@@ -60,6 +66,7 @@ class _CollectionScreenState extends State<CollectionScreen> {
   String _sort = 'created_desc';
   bool _searchExpanded = false;
   bool _signingOut = false;
+  bool _confirmingSignOut = false;
   int _loadRevision = 0;
 
   Future<_HomeData> _load({bool refresh = false}) async {
@@ -69,6 +76,12 @@ class _CollectionScreenState extends State<CollectionScreen> {
           _itemsRepository.list(),
           _preferencesRepository.load(refresh: refresh),
           _preferencesRepository.categories(refresh: refresh),
+          _local.loadPriceDisplay(_client.auth.currentUser!.id).catchError((
+            Object error,
+          ) {
+            debugPrint('Local display preference could not be loaded: $error');
+            return _priceDisplay;
+          }),
         ]).catchError((Object error, StackTrace stack) {
           debugPrint('Collection load failed: $error');
           Error.throwWithStackTrace(error, stack);
@@ -78,7 +91,10 @@ class _CollectionScreenState extends State<CollectionScreen> {
       preferences: results[1] as UserPreferences,
       categories: results[2] as List<String>,
     );
-    if (revision == _loadRevision) _current = next;
+    if (revision == _loadRevision) {
+      _current = next;
+      _priceDisplay = results[3] as PriceDisplay;
+    }
     return next;
   }
 
@@ -140,6 +156,7 @@ class _CollectionScreenState extends State<CollectionScreen> {
           repository: _itemsRepository,
           images: _images,
           preferences: _preferencesRepository,
+          drafts: _local,
         ),
       ),
     );
@@ -248,6 +265,15 @@ class _CollectionScreenState extends State<CollectionScreen> {
   }
 
   Future<void> _signOut() async {
+    if (_signingOut || _confirmingSignOut) return;
+    _confirmingSignOut = true;
+    bool? confirmed;
+    try {
+      confirmed = await confirmAction(context, title: '确认要退出登录吗');
+    } finally {
+      _confirmingSignOut = false;
+    }
+    if (confirmed != true || !mounted) return;
     setState(() => _signingOut = true);
     try {
       await _auth.signOut();
@@ -258,6 +284,17 @@ class _CollectionScreenState extends State<CollectionScreen> {
       }
     } finally {
       if (mounted) setState(() => _signingOut = false);
+    }
+  }
+
+  Future<void> _setPriceDisplay(PriceDisplay value) async {
+    final before = _priceDisplay;
+    setState(() => _priceDisplay = value);
+    try {
+      await _local.savePriceDisplay(_client.auth.currentUser!.id, value);
+    } catch (_) {
+      if (mounted) setState(() => _priceDisplay = before);
+      rethrow;
     }
   }
 
@@ -275,10 +312,11 @@ class _CollectionScreenState extends State<CollectionScreen> {
   @override
   Widget build(BuildContext context) => Scaffold(
     appBar: AppBar(
+      centerTitle: false,
       title: Text(switch (_tab) {
         1 => '收藏统计',
         2 => '设置',
-        _ => '收藏柜',
+        _ => 'Dearshelf',
       }),
       actions: [
         if (_tab == 0) ...[
@@ -302,9 +340,21 @@ class _CollectionScreenState extends State<CollectionScreen> {
             ),
           ),
         ],
+        if (_tab == 1) ...[
+          IconButton(
+            tooltip: '筛选分类',
+            icon: const Icon(Icons.category_outlined),
+            onPressed: () => _statsKey.currentState?.chooseCategory(),
+          ),
+          IconButton(
+            tooltip: '筛选年份',
+            icon: const Icon(Icons.calendar_month_outlined),
+            onPressed: () => _statsKey.currentState?.chooseYear(),
+          ),
+        ],
         if (_tab == 2)
           IconButton(
-            tooltip: '退出登录',
+            tooltip: _signingOut ? '正在退出登录，请稍候...' : '退出登录',
             onPressed: _signingOut ? null : _signOut,
             icon: _signingOut
                 ? const SizedBox(
@@ -345,6 +395,7 @@ class _CollectionScreenState extends State<CollectionScreen> {
                 categories: categories,
                 category: _category,
                 preferences: data.preferences,
+                priceDisplay: _priceDisplay,
                 images: _images,
                 search: _search,
                 searchExpanded: _searchExpanded,
@@ -360,13 +411,15 @@ class _CollectionScreenState extends State<CollectionScreen> {
                 onOpen: _open,
                 onRefresh: _reload,
               ),
-              StatsScreen(items: data.items),
+              StatsScreen(key: _statsKey, items: data.items),
               SettingsScreen(
                 repository: _preferencesRepository,
                 backup: _backup,
                 images: _images,
                 initialPreferences: data.preferences,
                 initialCategories: data.categories,
+                priceDisplay: _priceDisplay,
+                onPriceDisplayChanged: _setPriceDisplay,
                 onChanged: _settingsChanged,
                 onDataChanged: _reload,
               ),
