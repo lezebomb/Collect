@@ -1,30 +1,56 @@
 import 'dart:math' as math;
 
-import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 
 import '../core/app_theme.dart';
 import '../core/collection_options.dart';
+import 'section_card.dart';
+import 'selection_sheet.dart';
 
 class MonthlySpendingChart extends StatefulWidget {
   const MonthlySpendingChart({super.key, required this.values, this.year});
   final Map<String, double> values;
   final int? year;
-
   @override
   State<MonthlySpendingChart> createState() => _MonthlySpendingChartState();
 }
 
 class _MonthlySpendingChartState extends State<MonthlySpendingChart> {
   final _scroll = ScrollController();
-  bool _showLatest = true;
+  static const _firstYear = 1900;
+  late int _visibleYear = widget.year ?? _latest.year;
+  double _step = 0;
+  double? _pendingIndex;
+  bool _initialPosition = true;
+
+  DateTime get _latest {
+    if (widget.values.isEmpty) return DateTime.now();
+    final keys = widget.values.keys.toList()..sort();
+    return DateTime.parse('${keys.last}-01');
+  }
+
+  int _index(DateTime date) => (date.year - _firstYear) * 12 + date.month - 1;
+  DateTime _date(int index) => DateTime(_firstYear, index + 1);
+  String _key(DateTime date) =>
+      '${date.year}-${date.month.toString().padLeft(2, '0')}';
+  double _amount(int index) => widget.values[_key(_date(index))] ?? 0;
+  @override
+  void initState() {
+    super.initState();
+    _scroll.addListener(_onScroll);
+  }
+
+  void _onScroll() {
+    if (_step <= 0) return;
+    final year = _date((_scroll.offset / _step + .01).floor()).year;
+    if (year != _visibleYear && mounted) setState(() => _visibleYear = year);
+  }
 
   @override
-  void didUpdateWidget(covariant MonthlySpendingChart oldWidget) {
-    super.didUpdateWidget(oldWidget);
-    if (oldWidget.year != widget.year ||
-        !mapEquals(oldWidget.values, widget.values)) {
-      _showLatest = true;
+  void didUpdateWidget(covariant MonthlySpendingChart old) {
+    super.didUpdateWidget(old);
+    if (old.year != widget.year) {
+      _pendingIndex = _index(DateTime(widget.year ?? _latest.year)).toDouble();
     }
   }
 
@@ -34,204 +60,209 @@ class _MonthlySpendingChartState extends State<MonthlySpendingChart> {
     super.dispose();
   }
 
+  Future<void> _chooseYear() async {
+    final years = widget.values.keys.map(
+      (key) => int.parse(key.substring(0, 4)),
+    );
+    final first = math.min(
+      _visibleYear - 1,
+      years.isEmpty ? DateTime.now().year - 1 : years.reduce(math.min) - 1,
+    );
+    final last = math.max(
+      _visibleYear + 1,
+      math.max(DateTime.now().year, _latest.year),
+    );
+    final selected = await showSelectionSheet<int>(
+      context: context,
+      title: '查看年份',
+      builder: (context) => Wrap(
+        spacing: 8,
+        runSpacing: 8,
+        children: [
+          for (var year = last; year >= math.max(_firstYear, first); year--)
+            SelectionOption(
+              label: '$year 年',
+              selected: year == _visibleYear,
+              onTap: () => Navigator.pop(context, year),
+            ),
+        ],
+      ),
+    );
+    if (selected != null && mounted && _scroll.hasClients) {
+      _scroll.jumpTo(
+        (_index(DateTime(selected)) * _step).clamp(
+          0.0,
+          _scroll.position.maxScrollExtent,
+        ),
+      );
+    }
+  }
+
   @override
   Widget build(BuildContext context) {
-    if (widget.values.isEmpty) return const Text('暂无数据');
-    final keys = widget.values.keys.toList()..sort();
-    final first = DateTime.parse('${keys.first}-01');
-    final last = DateTime.parse('${keys.last}-01');
-    // Show complete years, including months with no purchases. No data is truncated.
-    final start = DateTime(widget.year ?? first.year);
-    final end = DateTime(widget.year ?? last.year, 12);
-    final months = <String>[];
-    for (
-      var date = start;
-      !date.isAfter(end);
-      date = DateTime(date.year, date.month + 1)
-    ) {
-      months.add('${date.year}-${date.month.toString().padLeft(2, '0')}');
-    }
-    final amounts = months.map((m) => widget.values[m] ?? 0.0).toList();
-    final highest = amounts.reduce(math.max);
-    final magnitude = highest <= 0
-        ? 1.0
-        : math.pow(10, (math.log(highest) / math.ln10).floor()).toDouble();
-    final ceiling = highest <= 0
-        ? 1.0
-        : (highest / magnitude).ceil() * magnitude;
-    final scale = MediaQuery.textScalerOf(context).scale(12) / 12;
-    final plotHeight = 170.0;
-    final headerHeight = 28 * scale;
-    final labelHeight = 42 * scale;
-    final columnWidth = 88.0 * math.max(1, scale);
-    if (_showLatest) {
-      _showLatest = false;
-      WidgetsBinding.instance.addPostFrameCallback((_) {
-        if (mounted && _scroll.hasClients) {
-          // Start at the newest purchase, rather than future empty months.
-          final latestIndex = months.indexOf(keys.last);
-          _scroll.jumpTo(
-            (latestIndex * columnWidth -
-                    _scroll.position.viewportDimension +
-                    columnWidth)
-                .clamp(0.0, _scroll.position.maxScrollExtent),
-          );
-        }
-      });
-    }
-    return Column(
-      crossAxisAlignment: CrossAxisAlignment.start,
-      children: [
-        const Text(
-          '金额 / CNY',
-          style: TextStyle(fontSize: 12, color: AppTheme.muted),
-        ),
-        const SizedBox(height: 8),
-        Row(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            SizedBox(
-              width: 52,
-              height: headerHeight + plotHeight,
-              child: Padding(
-                padding: EdgeInsets.only(top: headerHeight),
-                child: Column(
-                  mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                  crossAxisAlignment: CrossAxisAlignment.end,
-                  children: [
-                    for (var i = 4; i >= 0; i--)
-                      SizedBox(
-                        height: 15,
-                        child: FittedBox(
-                          fit: BoxFit.scaleDown,
-                          child: Text(
-                            _axisLabel(ceiling * i / 4),
-                            style: const TextStyle(
-                              fontSize: 11,
-                              color: AppTheme.muted,
-                            ),
-                          ),
-                        ),
-                      ),
-                  ],
-                ),
-              ),
-            ),
-            const SizedBox(width: 8),
-            Expanded(
-              child: SingleChildScrollView(
-                key: const ValueKey('monthly-chart-scroll'),
-                controller: _scroll,
-                scrollDirection: Axis.horizontal,
-                child: SizedBox(
-                  width: months.length * columnWidth,
-                  height: headerHeight + plotHeight + labelHeight,
-                  child: Column(
-                    children: [
-                      Row(
+    final count = (math.max(2100, _latest.year + 1) - _firstYear + 1) * 12;
+    final highest = widget.values.isEmpty
+        ? 0.0
+        : widget.values.values.reduce(math.max);
+    final ceiling = highest <= 0 ? 1.0 : highest * 1.12;
+    final scale = (MediaQuery.textScalerOf(context).scale(12) / 12).clamp(
+      1.0,
+      2.0,
+    );
+    return SectionCard(
+      title: '月度消费趋势',
+      trailing: TextButton.icon(
+        key: const ValueKey('monthly-chart-year'),
+        onPressed: _chooseYear,
+        icon: const Icon(Icons.calendar_month_outlined, size: 16),
+        label: Text('$_visibleYear 年', style: const TextStyle(fontSize: 12)),
+      ),
+      child: LayoutBuilder(
+        builder: (context, bounds) {
+          final step = math.max(bounds.maxWidth / 6, 46.0 * scale);
+          if (_step != 0 && _step != step && _scroll.hasClients) {
+            _pendingIndex ??= _scroll.offset / _step;
+          }
+          _step = step;
+          if (_initialPosition || _pendingIndex != null) {
+            final target =
+                _pendingIndex ??
+                (widget.year != null
+                    ? _index(DateTime(widget.year!)).toDouble()
+                    : math.max(0, _index(_latest) - 4).toDouble());
+            _pendingIndex = null;
+            _initialPosition = false;
+            WidgetsBinding.instance.addPostFrameCallback((_) {
+              if (mounted && _scroll.hasClients) {
+                _scroll.jumpTo(
+                  (target * step).clamp(0.0, _scroll.position.maxScrollExtent),
+                );
+                _onScroll();
+              }
+            });
+          }
+          final plotHeight = 168.0 + 16 * (scale - 1),
+              amountHeight = 20.0 * scale,
+              labelHeight = 28.0 * scale;
+          return Column(
+            children: [
+              SizedBox(
+                height: amountHeight + plotHeight + labelHeight,
+                child: ListView.builder(
+                  key: const ValueKey('monthly-chart-scroll'),
+                  controller: _scroll,
+                  scrollDirection: Axis.horizontal,
+                  itemExtent: step,
+                  itemCount: count,
+                  itemBuilder: (context, index) {
+                    final date = _date(index), amount = _amount(index);
+                    final pointY =
+                        amountHeight +
+                        (plotHeight - 12) * (1 - amount / ceiling);
+                    return Semantics(
+                      label: '${_key(date)}，${money(amount, 'CNY')}',
+                      child: Column(
                         children: [
-                          for (var i = 0; i < months.length; i++)
-                            SizedBox(
-                              width: columnWidth,
-                              height: headerHeight,
-                              child: Center(
-                                child: Padding(
-                                  padding: const EdgeInsets.symmetric(
-                                    horizontal: 4,
+                          SizedBox(
+                            height: amountHeight + plotHeight,
+                            child: Stack(
+                              children: [
+                                Positioned.fill(
+                                  child: RepaintBoundary(
+                                    child: CustomPaint(
+                                      painter: _MonthPainter(
+                                        index == 0
+                                            ? amount
+                                            : _amount(index - 1),
+                                        amount,
+                                        index == count - 1
+                                            ? amount
+                                            : _amount(index + 1),
+                                        ceiling,
+                                        amountHeight,
+                                      ),
+                                    ),
                                   ),
+                                ),
+                                Positioned(
+                                  top: math.max(0, pointY - amountHeight - 6),
+                                  left: 2,
+                                  right: 2,
+                                  height: amountHeight,
                                   child: FittedBox(
                                     fit: BoxFit.scaleDown,
                                     child: Text(
-                                      money(amounts[i], 'CNY'),
+                                      money(amount, 'CNY'),
                                       style: const TextStyle(
-                                        fontSize: 11,
+                                        fontSize: 10,
                                         color: AppTheme.muted,
                                       ),
                                     ),
                                   ),
                                 ),
-                              ),
+                              ],
                             ),
-                        ],
-                      ),
-                      RepaintBoundary(
-                        child: CustomPaint(
-                          size: Size(months.length * columnWidth, plotHeight),
-                          painter: _TrendPainter(amounts, ceiling, columnWidth),
-                        ),
-                      ),
-                      Row(
-                        children: [
-                          for (var i = 0; i < months.length; i++)
-                            Semantics(
-                              label: '${months[i]}，${money(amounts[i], 'CNY')}',
-                              child: SizedBox(
-                                width: columnWidth,
-                                height: labelHeight,
-                                child: Center(
-                                  child: Text(
-                                    months[i],
-                                    style: const TextStyle(fontSize: 11),
-                                  ),
+                          ),
+                          SizedBox(
+                            height: labelHeight,
+                            child: Center(
+                              child: Text(
+                                '${date.month}月',
+                                style: const TextStyle(
+                                  fontSize: 12,
+                                  color: AppTheme.muted,
                                 ),
                               ),
                             ),
+                          ),
                         ],
                       ),
-                    ],
-                  ),
+                    );
+                  },
                 ),
               ),
-            ),
-          ],
-        ),
-        const SizedBox(height: 4),
-        const Text(
-          '左右滑动查看月份 · 未购入月份为 0',
-          style: TextStyle(fontSize: 12, color: AppTheme.muted),
-        ),
-      ],
+              const SizedBox(height: 6),
+              const Text(
+                '左右滑动查看月份，滑过年末可继续查看相邻年份',
+                style: TextStyle(fontSize: 11, color: AppTheme.muted),
+              ),
+            ],
+          );
+        },
+      ),
     );
   }
-
-  String _axisLabel(double amount) => amount >= 100000000
-      ? '${(amount / 100000000).toStringAsFixed(1)}亿'
-      : amount >= 10000
-      ? '${(amount / 10000).toStringAsFixed(1)}万'
-      : amount.toStringAsFixed(amount < 10 && amount != 0 ? 1 : 0);
 }
 
-class _TrendPainter extends CustomPainter {
-  _TrendPainter(this.values, this.ceiling, this.step);
-  final List<double> values;
-  final double ceiling;
-  final double step;
-
+/// Paint only a visible point and its adjoining arcs, with consistent scale.
+class _MonthPainter extends CustomPainter {
+  _MonthPainter(this.previous, this.amount, this.next, this.ceiling, this.top);
+  final double previous, amount, next, ceiling, top;
   @override
   void paint(Canvas canvas, Size size) {
-    const inset = 7.5;
-    final height = size.height - inset * 2;
+    canvas.save();
+    canvas.clipRect(Offset.zero & size);
+    final height = size.height - top - 12;
     final grid = Paint()
       ..color = const Color(0xFFE9EEEA)
       ..strokeWidth = 1;
-    for (var i = 0; i <= 4; i++) {
-      final y = inset + height * i / 4;
+    for (var i = 0; i <= 3; i++) {
+      final y = top + height * i / 3;
       canvas.drawLine(Offset(0, y), Offset(size.width, y), grid);
     }
     final points = [
-      for (var i = 0; i < values.length; i++)
-        Offset((i + .5) * step, inset + height * (1 - values[i] / ceiling)),
+      Offset(-size.width / 2, top + height * (1 - previous / ceiling)),
+      Offset(size.width / 2, top + height * (1 - amount / ceiling)),
+      Offset(size.width * 1.5, top + height * (1 - next / ceiling)),
     ];
     final curve = Path()..moveTo(points.first.dx, points.first.dy);
     for (var i = 1; i < points.length; i++) {
-      final a = points[i - 1];
-      final b = points[i];
-      final mid = (a.dx + b.dx) / 2;
+      final a = points[i - 1], b = points[i], mid = (a.dx + b.dx) / 2;
       curve.cubicTo(mid, a.dy, mid, b.dy, b.dx, b.dy);
     }
     final fill = Path.from(curve)
-      ..lineTo(points.last.dx, inset + height)
-      ..lineTo(points.first.dx, inset + height)
+      ..lineTo(points.last.dx, top + height)
+      ..lineTo(points.first.dx, top + height)
       ..close();
     canvas.drawPath(fill, Paint()..color = const Color(0x145E9F88));
     canvas.drawPath(
@@ -239,18 +270,18 @@ class _TrendPainter extends CustomPainter {
       Paint()
         ..color = const Color(0xFF5E9F88)
         ..strokeWidth = 2.5
-        ..style = PaintingStyle.stroke
-        ..strokeCap = StrokeCap.round,
+        ..style = PaintingStyle.stroke,
     );
-    for (final point in points) {
-      canvas.drawCircle(point, 3.5, Paint()..color = const Color(0xFF5E9F88));
-      canvas.drawCircle(point, 1.5, Paint()..color = Colors.white);
-    }
+    canvas.drawCircle(points[1], 4, Paint()..color = const Color(0xFF5E9F88));
+    canvas.drawCircle(points[1], 2.2, Paint()..color = Colors.white);
+    canvas.restore();
   }
 
   @override
-  bool shouldRepaint(_TrendPainter old) =>
+  bool shouldRepaint(_MonthPainter old) =>
+      old.previous != previous ||
+      old.amount != amount ||
+      old.next != next ||
       old.ceiling != ceiling ||
-      old.step != step ||
-      !listEquals(old.values, values);
+      old.top != top;
 }

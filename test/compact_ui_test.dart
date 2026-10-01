@@ -183,14 +183,16 @@ void main() {
       MaterialApp(
         theme: AppTheme.light,
         home: Scaffold(
-          body: ItemImageSection(
-            preview: null,
-            imageUrl: null,
-            images: CoverImageService(_UnusedClient()),
-            busy: false,
-            onGallery: () => gallery++,
-            onCamera: () {},
-            onRemove: () {},
+          body: SingleChildScrollView(
+            child: ItemImageSection(
+              preview: null,
+              imageUrl: null,
+              images: CoverImageService(_UnusedClient()),
+              busy: false,
+              onGallery: () => gallery++,
+              onCamera: () {},
+              onRemove: () {},
+            ),
           ),
         ),
       ),

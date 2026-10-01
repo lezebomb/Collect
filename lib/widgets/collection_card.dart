@@ -47,7 +47,14 @@ class CollectionCard extends StatelessWidget {
               child: Stack(
                 fit: StackFit.expand,
                 children: [
-                  PrivateCover(imageUrl: item.coverImage, images: images),
+                  ColoredBox(
+                    color: const Color(0xFFEFF1EC),
+                    child: PrivateCover(
+                      imageUrl: item.coverImage,
+                      images: images,
+                      fit: BoxFit.contain,
+                    ),
+                  ),
                   if (preferences.showOwnedDays)
                     Positioned(
                       right: 9,

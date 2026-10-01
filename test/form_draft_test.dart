@@ -159,6 +159,19 @@ void main() {
         tester.widget<TextFormField>(_name).controller!.text,
         'A dear thing',
       );
+      expect(find.text('草稿箱'), findsOneWidget);
+      await tester.enterText(_name, 'Unsaved change');
+      await tester.tap(find.text('草稿箱'));
+      await tester.pumpAndSettle();
+      await tester.tap(find.text('A dear thing'));
+      await tester.pumpAndSettle();
+      expect(find.text('用草稿替换当前填写的内容吗'), findsOneWidget);
+      await tester.tap(find.text('载入草稿'));
+      await tester.pumpAndSettle();
+      expect(
+        tester.widget<TextFormField>(_name).controller!.text,
+        'A dear thing',
+      );
       await tester.tap(find.byType(BackButton));
       await tester.pumpAndSettle();
       await tester.tap(find.text('不保存'));
@@ -183,6 +196,30 @@ void main() {
     expect(find.textContaining('草稿处理失败'), findsOneWidget);
     expect(h.items.writes, 0);
   });
+
+  testWidgets(
+    'Draft box deletion removes saved draft and keeps current input',
+    (tester) async {
+      final h = _Harness();
+      h.drafts.draft = {'name': 'Stored', 'category': '周边'};
+      await h.open(tester);
+      await tester.enterText(_name, 'Still editing');
+      await tester.tap(find.text('草稿箱'));
+      await tester.pumpAndSettle();
+      await tester.tap(find.text('删除已保存的草稿'));
+      await tester.pumpAndSettle();
+      expect(find.text('当前页面已填写的内容会保留。'), findsOneWidget);
+      await tester.tap(find.text('删除'));
+      await tester.pumpAndSettle();
+      expect(h.drafts.draft, isNull);
+      expect(find.text('草稿箱'), findsNothing);
+      expect(
+        tester.widget<TextFormField>(_name).controller!.text,
+        'Still editing',
+      );
+      expect(h.items.writes, 0);
+    },
+  );
 
   for (final success in [true, false]) {
     testWidgets('Edit back save awaits repository, success = $success', (

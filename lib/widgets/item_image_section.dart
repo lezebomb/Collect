@@ -3,6 +3,7 @@ import 'dart:typed_data';
 import 'package:flutter/material.dart';
 
 import '../core/app_ui.dart';
+import '../core/cover_crop.dart';
 
 import '../services/cover_image_service.dart';
 import 'private_cover.dart';
@@ -18,6 +19,7 @@ class ItemImageSection extends StatelessWidget {
     required this.onGallery,
     required this.onCamera,
     required this.onRemove,
+    this.onAdjust,
   });
 
   final Uint8List? preview;
@@ -27,6 +29,7 @@ class ItemImageSection extends StatelessWidget {
   final VoidCallback onGallery;
   final VoidCallback onCamera;
   final VoidCallback onRemove;
+  final VoidCallback? onAdjust;
 
   Future<void> _chooseCover(BuildContext context) async {
     final camera = await showSelectionSheet<bool>(
@@ -69,7 +72,7 @@ class ItemImageSection extends StatelessWidget {
           child: InkWell(
             onTap: busy ? null : () => _chooseCover(context),
             child: AspectRatio(
-              aspectRatio: 1.7,
+              aspectRatio: CoverFrame.aspectRatio,
               child: preview != null
                   ? ColoredBox(
                       color: const Color(0xFFEFF1EC),
@@ -106,6 +109,12 @@ class ItemImageSection extends StatelessWidget {
             icon: const Icon(Icons.camera_alt_outlined),
             label: const Text('拍照识别'),
           ),
+          if (preview != null || imageUrl != null)
+            TextButton.icon(
+              onPressed: busy ? null : onAdjust,
+              icon: const Icon(Icons.crop_rounded),
+              label: const Text('调整取景'),
+            ),
           if (preview != null || imageUrl != null)
             TextButton(
               onPressed: busy ? null : onRemove,

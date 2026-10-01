@@ -29,6 +29,7 @@ import '../widgets/section_card.dart';
 import '../widgets/rounded_choice_field.dart';
 import '../widgets/confirmation_dialog.dart';
 import '../widgets/selection_sheet.dart';
+import 'cover_crop_screen.dart';
 
 class ItemFormScreen extends StatefulWidget {
   const ItemFormScreen({
@@ -82,6 +83,7 @@ class _ItemFormScreenState extends State<ItemFormScreen> {
   }.toList();
   XFile? _newCover;
   Uint8List? _preview;
+  Uint8List? _sourcePreview;
   bool _removeCover = false;
   bool _busy = false;
   String? _loadingMessage;
@@ -92,6 +94,8 @@ class _ItemFormScreenState extends State<ItemFormScreen> {
   bool _allowPop = false;
   bool _leaving = false;
   bool _restoredDraft = false;
+  Map<String, dynamic>? _savedDraft;
+  Map<String, dynamic>? _draftSnapshot;
 
   Map<String, dynamic> _fields() => {
     'name': _name.text,
@@ -119,41 +123,7 @@ class _ItemFormScreenState extends State<ItemFormScreen> {
       try {
         final draft = await _drafts.loadDraft(_owner);
         if (draft != null && mounted) {
-          final encodedCover = draft['cover_bytes'] as String?;
-          final bytes = encodedCover == null
-              ? null
-              : base64Decode(encodedCover);
-          if (bytes != null && bytes.length > CoverImageService.maxBytes) {
-            throw const FormatException('草稿封面超过 10 MB');
-          }
-          setState(() {
-            _name.text = draft['name'] as String? ?? '';
-            _description.text = draft['description'] as String? ?? '';
-            _price.text = draft['price'] as String? ?? '';
-            _priceCny.text = draft['price_cny'] as String? ?? '';
-            _category = draft['category'] as String?;
-            _currency = draft['currency'] as String? ?? 'CNY';
-            _platform = draft['platform'] as String?;
-            _contentType = draft['content_type'] as String?;
-            _edition = draft['edition'] as String?;
-            _playStatus = draft['play_status'] as String?;
-            _purchaseDate = DateTime.tryParse(
-              draft['purchase_date'] as String? ?? '',
-            );
-            _removeCover = draft['remove_cover'] == true;
-            if (_category != null && !_categories.contains(_category)) {
-              _categories = [..._categories, _category!];
-            }
-            _preview = bytes;
-            _newCover = bytes == null
-                ? null
-                : XFile.fromData(
-                    bytes,
-                    path: draft['cover_name'] as String? ?? 'draft.jpg',
-                    mimeType: draft['cover_mime'] as String?,
-                  );
-            _restoredDraft = true;
-          });
+          _restoreDraft(draft);
         }
       } catch (error) {
         if (mounted) _message('读取草稿失败，原草稿仍保留：$error');
@@ -162,6 +132,126 @@ class _ItemFormScreenState extends State<ItemFormScreen> {
     if (mounted) {
       _endLoading();
       await _recoverLostImage();
+    }
+  }
+
+  void _restoreDraft(Map<String, dynamic> draft) {
+    final encodedCover = draft['cover_bytes'] as String?;
+    final bytes = encodedCover == null ? null : base64Decode(encodedCover);
+    if (bytes != null && bytes.length > CoverImageService.maxBytes) {
+      throw const FormatException('草稿封面超过 10 MB');
+    }
+    final original = draft['original_cover_bytes'] as String?;
+    final source = original == null ? bytes : base64Decode(original);
+    if (source != null && source.length > CoverImageService.maxBytes) {
+      throw const FormatException('草稿原图超过 10 MB');
+    }
+    setState(() {
+      _name.text = draft['name'] as String? ?? '';
+      _description.text = draft['description'] as String? ?? '';
+      _price.text = draft['price'] as String? ?? '';
+      _priceCny.text = draft['price_cny'] as String? ?? '';
+      _category = draft['category'] as String?;
+      _currency = draft['currency'] as String? ?? 'CNY';
+      _platform = draft['platform'] as String?;
+      _contentType = draft['content_type'] as String?;
+      _edition = draft['edition'] as String?;
+      _playStatus = draft['play_status'] as String?;
+      _purchaseDate = DateTime.tryParse(
+        draft['purchase_date'] as String? ?? '',
+      );
+      _removeCover = draft['remove_cover'] == true;
+      if (_category != null && !_categories.contains(_category)) {
+        _categories = [..._categories, _category!];
+      }
+      _preview = bytes;
+      _sourcePreview = source;
+      _newCover = bytes == null
+          ? null
+          : XFile.fromData(
+              bytes,
+              path: draft['cover_name'] as String? ?? 'draft.jpg',
+              mimeType: draft['cover_mime'] as String?,
+            );
+      _restoredDraft = true;
+      _savedDraft = draft;
+      _draftSnapshot = _fields();
+    });
+  }
+
+  Future<void> _showDrafts() async {
+    final draft = _savedDraft;
+    if (draft == null || _busy) return;
+    FocusScope.of(context).unfocus();
+    final action = await showSelectionSheet<String>(
+      context: context,
+      title: '草稿箱',
+      builder: (context) => Column(
+        crossAxisAlignment: CrossAxisAlignment.stretch,
+        children: [
+          ListTile(
+            shape: const RoundedRectangleBorder(
+              borderRadius: BorderRadius.all(Radius.circular(AppRadius.input)),
+            ),
+            leading: const Icon(Icons.inventory_2_outlined),
+            title: Text(
+              (draft['name'] as String?)?.trim().isNotEmpty == true
+                  ? draft['name'] as String
+                  : '未命名的收藏',
+            ),
+            subtitle: const Text('点击载入已保存的草稿'),
+            trailing: const Icon(Icons.chevron_right_rounded),
+            onTap: () => Navigator.pop(context, 'restore'),
+          ),
+          const SizedBox(height: 8),
+          const Text('草稿已自动载入，可以继续编辑。', style: TextStyle(fontSize: 12)),
+          const SizedBox(height: 12),
+          TextButton.icon(
+            onPressed: () => Navigator.pop(context, 'delete'),
+            icon: const Icon(Icons.delete_outline_rounded),
+            label: const Text('删除已保存的草稿'),
+          ),
+        ],
+      ),
+    );
+    if (!mounted || action == null) return;
+    if (action == 'restore') {
+      if (jsonEncode(_fields()) != jsonEncode(_draftSnapshot)) {
+        final confirmed = await confirmAction(
+          context,
+          title: '用草稿替换当前填写的内容吗',
+          confirm: '载入草稿',
+        );
+        if (confirmed != true || !mounted) return;
+      }
+      try {
+        _restoreDraft(draft);
+      } catch (_) {
+        _message('读取草稿失败，当前内容仍保留');
+      }
+    } else if (action == 'delete') {
+      final confirmed = await confirmAction(
+        context,
+        title: '删除已保存的草稿吗',
+        content: '当前页面已填写的内容会保留。',
+        confirm: '删除',
+      );
+      if (confirmed != true || !mounted) return;
+      _beginLoading('正在删除草稿…');
+      try {
+        await _drafts.clearDraft(_owner);
+        if (mounted) {
+          setState(() {
+            _savedDraft = null;
+            _draftSnapshot = null;
+            _restoredDraft = false;
+          });
+        }
+      } catch (_) {
+        if (mounted) _message('删除草稿失败，原草稿仍保留');
+      } finally {
+        _endLoading();
+      }
     }
   }
 
@@ -204,6 +294,8 @@ class _ItemFormScreenState extends State<ItemFormScreen> {
             ..._fields()..remove('cover_identity'),
             'version': 1,
             if (_preview != null) 'cover_bytes': base64Encode(_preview!),
+            if (_sourcePreview != null)
+              'original_cover_bytes': base64Encode(_sourcePreview!),
             if (_newCover != null) 'cover_name': _newCover!.name,
             if (_newCover?.mimeType != null) 'cover_mime': _newCover!.mimeType,
           });
@@ -285,11 +377,58 @@ class _ItemFormScreenState extends State<ItemFormScreen> {
       _message('图片不能超过 10 MB');
       return;
     }
+    await _cropCover(bytes);
+  }
+
+  Future<void> _cropCover(Uint8List bytes) async {
+    if (!mounted) return;
+    final cropped = await Navigator.of(context).push<Uint8List>(
+      MaterialPageRoute(builder: (_) => CoverCropScreen(bytes: bytes)),
+    );
+    if (cropped == null || !mounted) return;
+    if (cropped.length > CoverImageService.maxBytes) {
+      _message('裁剪后的封面超过 10 MB，请缩小取景范围');
+      return;
+    }
     setState(() {
-      _newCover = image;
-      _preview = bytes;
+      _newCover = XFile.fromData(
+        cropped,
+        path: 'cover.png',
+        mimeType: 'image/png',
+      );
+      _preview = cropped;
+      _sourcePreview = bytes;
       _removeCover = false;
     });
+  }
+
+  Future<void> _adjustCover() async {
+    if (_busy) return;
+    var bytes = _sourcePreview ?? _preview;
+    if (bytes == null && widget.initial?.coverImage != null && !_removeCover) {
+      _beginLoading('正在读取封面…');
+      try {
+        final original = widget.initial!.coverImage!;
+        final signed = await widget.images.signedUrl(original);
+        if (signed == null) throw StateError('封面不可用');
+        final cached = await widget.images.imageCache.getSingleFile(
+          signed,
+          key: widget.images.cacheKey(original),
+        );
+        bytes = await cached.readAsBytes();
+      } catch (_) {
+        if (mounted) _message('封面读取失败，请重试或从相册选择');
+      } finally {
+        _endLoading();
+      }
+    }
+    if (bytes != null && mounted) {
+      if (bytes.length > CoverImageService.maxBytes) {
+        _message('图片不能超过 10 MB');
+        return;
+      }
+      await _cropCover(bytes);
+    }
   }
 
   void _message(String text) =>
@@ -747,6 +886,21 @@ class _ItemFormScreenState extends State<ItemFormScreen> {
       appBar: AppBar(
         leading: BackButton(onPressed: _leave),
         title: Text(widget.initial == null ? '添加收藏' : '编辑收藏'),
+        actions: [
+          if (widget.initial == null && _savedDraft != null)
+            Padding(
+              padding: const EdgeInsets.only(right: 12),
+              child: TextButton.icon(
+                onPressed: _busy ? null : _showDrafts,
+                style: TextButton.styleFrom(
+                  backgroundColor: Theme.of(context).colorScheme.primary
+                      .withValues(alpha: .08),
+                ),
+                icon: const Icon(Icons.inventory_2_outlined, size: 20),
+                label: const Text('草稿箱'),
+              ),
+            ),
+        ],
       ),
       body: LoadingOverlay(
         loading: _loadingMessage == '正在保存收藏…' || _loadingMessage == '正在保存修改…',
@@ -789,9 +943,11 @@ class _ItemFormScreenState extends State<ItemFormScreen> {
                     busy: _busy,
                     onGallery: () => _pickCover(ImageSource.gallery),
                     onCamera: () => _pickCover(ImageSource.camera),
+                    onAdjust: _adjustCover,
                     onRemove: () => setState(() {
                       _newCover = null;
                       _preview = null;
+                      _sourcePreview = null;
                       _removeCover = true;
                     }),
                   ),

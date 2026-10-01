@@ -147,10 +147,19 @@ class StatsScreenState extends State<StatsScreen> {
                 moneyLabels: false,
               ),
             ),
-            _panel(
-              context,
-              '月度消费趋势',
-              MonthlySpendingChart(values: stats.monthlySpending, year: _year),
+            Padding(
+              padding: const EdgeInsets.only(bottom: AppSpacing.lg),
+              child: MonthlySpendingChart(
+                values: CollectionStats(
+                  widget.items
+                      .where(
+                        (item) =>
+                            _category == null || item.category == _category,
+                      )
+                      .toList(),
+                ).monthlySpending,
+                year: _year,
+              ),
             ),
             if (_category == null || _category == '游戏')
               _panel(

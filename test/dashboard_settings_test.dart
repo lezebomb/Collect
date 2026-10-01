@@ -62,18 +62,17 @@ void main() {
       await tester.pumpWidget(chart());
       await tester.pumpAndSettle();
       final scrollFinder = find.byKey(const ValueKey('monthly-chart-scroll'));
-      final controller = tester
-          .widget<SingleChildScrollView>(scrollFinder)
-          .controller!;
-      expect(find.text('2024-01'), findsOneWidget);
-      expect(find.text('2025-02'), findsOneWidget);
-      expect(find.text('2026-12'), findsOneWidget);
+      final controller = tester.widget<ListView>(scrollFinder).controller!;
+      expect(find.text('2026 年'), findsOneWidget);
+      expect(find.text('6月'), findsWidgets);
+      expect(find.text('金额 / CNY'), findsNothing);
       expect(find.text('¥0.00'), findsWidgets);
       final latest = controller.offset;
       expect(latest, greaterThan(0));
       await tester.drag(scrollFinder, const Offset(260, 0));
       await tester.pumpAndSettle();
       expect(controller.offset, lessThan(latest));
+      expect(find.text('2025 年'), findsOneWidget);
       final previous = controller.offset;
       await tester.pumpWidget(chart());
       await tester.pumpAndSettle();
@@ -81,6 +80,12 @@ void main() {
       await tester.drag(scrollFinder, const Offset(-260, 0));
       await tester.pumpAndSettle();
       expect(controller.offset, greaterThan(previous));
+      await tester.tap(find.byKey(const ValueKey('monthly-chart-year')));
+      await tester.pumpAndSettle();
+      await tester.tap(find.text('2024 年'));
+      await tester.pumpAndSettle();
+      expect(find.text('1月'), findsWidgets);
+      expect(find.text('¥10.00'), findsOneWidget);
       expect(tester.takeException(), isNull);
     },
   );
@@ -154,7 +159,15 @@ void main() {
       );
       await tester.tap(game);
       await tester.pumpAndSettle();
-      expect(find.text('¥0.00'), findsOneWidget);
+      expect(
+        find.descendant(
+          of: find
+              .ancestor(of: find.text('藏品价值'), matching: find.byType(Card))
+              .first,
+          matching: find.text('¥0.00'),
+        ),
+        findsOneWidget,
+      );
       expect(tester.takeException(), isNull);
     },
   );

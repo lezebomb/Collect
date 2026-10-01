@@ -5,10 +5,12 @@ Future<bool?> confirmAction(
   required String title,
   String confirm = '确认',
   String cancel = '取消',
+  String? content,
 }) => showDialog<bool>(
   context: context,
   builder: (context) => AlertDialog(
     title: Text(title),
+    content: content == null ? null : Text(content),
     actions: [
       TextButton(
         onPressed: () => Navigator.pop(context, false),
