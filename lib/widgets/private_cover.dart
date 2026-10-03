@@ -1,3 +1,5 @@
+import 'dart:io';
+
 import 'package:cached_network_image/cached_network_image.dart';
 import 'package:flutter/material.dart';
 
@@ -21,21 +23,64 @@ class PrivateCover extends StatefulWidget {
 }
 
 class _PrivateCoverState extends State<PrivateCover> {
-  late Future<String?> _signedUrl = widget.images.signedUrl(widget.imageUrl);
+  Future<String?>? _signedUrl;
+  bool _usingCachedFile = false;
+  late Future<File?> _cachedFile = _lookupCachedFile();
+
+  Future<File?> _lookupCachedFile() async {
+    final url = widget.imageUrl;
+    final images = widget.images;
+    final file = await images.cachedCover(url);
+    if (widget.imageUrl == url && identical(widget.images, images)) {
+      _usingCachedFile = file != null;
+    }
+    return file;
+  }
 
   @override
   void didUpdateWidget(covariant PrivateCover oldWidget) {
     super.didUpdateWidget(oldWidget);
     if (oldWidget.imageUrl != widget.imageUrl ||
         oldWidget.images != widget.images ||
-        !widget.images.hasFreshSignedUrl(widget.imageUrl)) {
-      _signedUrl = widget.images.signedUrl(widget.imageUrl);
+        (!_usingCachedFile &&
+            !widget.images.hasFreshSignedUrl(widget.imageUrl))) {
+      _usingCachedFile = false;
+      _cachedFile = _lookupCachedFile();
+      _signedUrl = null;
     }
   }
 
   @override
-  Widget build(BuildContext context) => FutureBuilder<String?>(
-    future: _signedUrl,
+  Widget build(BuildContext context) => FutureBuilder<File?>(
+    key: ValueKey(widget.imageUrl),
+    future: _cachedFile,
+    builder: (context, file) {
+      if (file.data case final cached?) {
+        return LayoutBuilder(
+          builder: (context, constraints) => Image.file(
+            cached,
+            fit: widget.fit,
+            width: double.infinity,
+            height: double.infinity,
+            cacheWidth: constraints.maxWidth.isFinite
+                ? (constraints.maxWidth *
+                          MediaQuery.devicePixelRatioOf(context))
+                      .round()
+                      .clamp(1, 1600)
+                : null,
+            errorBuilder: (context, error, stack) => const _CoverPlaceholder(),
+          ),
+        );
+      }
+      if (file.connectionState != ConnectionState.done) {
+        return const _CoverPlaceholder(loading: true);
+      }
+      return _network(context);
+    },
+  );
+
+  Widget _network(BuildContext context) => FutureBuilder<String?>(
+    future: _signedUrl ??= widget.images.signedUrl(widget.imageUrl),
     initialData: widget.images.cachedSignedUrl(widget.imageUrl),
     builder: (context, snapshot) {
       if (snapshot.connectionState != ConnectionState.done &&

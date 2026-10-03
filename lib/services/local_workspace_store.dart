@@ -5,6 +5,7 @@ import 'package:path_provider/path_provider.dart';
 import 'package:uuid/uuid.dart';
 
 import '../core/price_display.dart';
+import '../core/collection_snapshot.dart';
 
 /// Device-local, account-scoped data; never changes cloud rows or backup format.
 class LocalWorkspaceStore {
@@ -12,6 +13,7 @@ class LocalWorkspaceStore {
     : _directory = directory ?? getApplicationSupportDirectory;
 
   final Future<Directory> Function() _directory;
+  final _snapshotWrites = <String, Future<void>>{};
 
   Future<File> _file(String owner, String name) async {
     if (owner.isEmpty) throw StateError('请先登录');
@@ -62,4 +64,27 @@ class LocalWorkspaceStore {
 
   Future<void> savePriceDisplay(String owner, PriceDisplay display) =>
       _write(owner, 'display', {'price_display': display.name});
+
+  Future<CollectionSnapshot?> loadCollectionSnapshot(String owner) async {
+    final json = await _read(owner, 'collection-cache');
+    return json == null ? null : CollectionSnapshot.fromJson(json, owner);
+  }
+
+  Future<void> saveCollectionSnapshot(String owner, CollectionSnapshot view) {
+    // Serialize writes so a slower old write cannot replace a newer view.
+    final previous = _snapshotWrites[owner] ?? Future<void>.value();
+    final next = previous
+        .catchError((Object _) {})
+        .then((_) => _write(owner, 'collection-cache', view.toJson(owner)));
+    _snapshotWrites[owner] = next;
+    return next;
+  }
+
+  Future<void> clearCollectionSnapshot(String owner) async {
+    await (_snapshotWrites[owner] ?? Future<void>.value()).catchError(
+      (Object _) {},
+    );
+    final file = await _file(owner, 'collection-cache');
+    if (await file.exists()) await file.delete();
+  }
 }

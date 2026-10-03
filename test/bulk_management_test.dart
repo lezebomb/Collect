@@ -5,6 +5,7 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
 import 'package:shou_cang_gui/core/app_theme.dart';
 import 'package:shou_cang_gui/core/price_display.dart';
+import 'package:shou_cang_gui/core/collection_snapshot.dart';
 import 'package:shou_cang_gui/models/collection_item.dart';
 import 'package:shou_cang_gui/models/user_preferences.dart';
 import 'package:shou_cang_gui/repositories/item_repository.dart';
@@ -56,6 +57,14 @@ class _Preferences extends PreferencesRepository {
 
 class _Local extends LocalWorkspaceStore {
   @override
+  Future<CollectionSnapshot?> loadCollectionSnapshot(String owner) async =>
+      null;
+  @override
+  Future<void> saveCollectionSnapshot(
+    String owner,
+    CollectionSnapshot view,
+  ) async {}
+  @override
   Future<PriceDisplay> loadPriceDisplay(String owner) async =>
       PriceDisplay.original;
 }
@@ -82,7 +91,7 @@ class _Items extends ItemRepository {
   Completer<List<CollectionItem>>? categoryReply;
   bool failSecondDelete = false;
   @override
-  Future<List<CollectionItem>> list() async {
+  Future<List<CollectionItem>> list({bool refresh = false}) async {
     loads++;
     return List.of(stored);
   }

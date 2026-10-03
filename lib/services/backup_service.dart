@@ -21,7 +21,7 @@ class BackupService {
   final BackupArchiveCodec _codec = BackupArchiveCodec();
 
   Future<Uri?> export() async {
-    final records = await items.list();
+    final records = await items.list(refresh: true);
     final categories = await preferences.categories();
     final prefs = await preferences.load();
     final files = <String, Uint8List>{};
@@ -94,6 +94,8 @@ class BackupService {
     final userId = client.auth.currentUser!.id;
     final sameAccount = root['source_user_id'] == userId;
     var count = 0;
+    // Import writes rows directly, including partial imports that fail later.
+    items.invalidate();
     for (final data in payloadItems) {
       final originalId = data['id'];
       if (originalId is! String) throw const FormatException('备份中的物品 ID 无效');

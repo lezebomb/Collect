@@ -9,6 +9,7 @@ class CategoryChip extends StatelessWidget {
     required this.label,
     this.selected = false,
     this.onTap,
+    this.onLongPress,
     this.onDeleted,
     this.deleting = false,
   });
@@ -16,6 +17,7 @@ class CategoryChip extends StatelessWidget {
   final String label;
   final bool selected;
   final VoidCallback? onTap;
+  final VoidCallback? onLongPress;
   final VoidCallback? onDeleted;
   final bool deleting;
 
@@ -32,6 +34,7 @@ class CategoryChip extends StatelessWidget {
         clipBehavior: Clip.antiAlias,
         child: InkWell(
           onTap: onTap,
+          onLongPress: onLongPress,
           child: ConstrainedBox(
             constraints: BoxConstraints(maxWidth: 240, minHeight: height),
             child: Padding(

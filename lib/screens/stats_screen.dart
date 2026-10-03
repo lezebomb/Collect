@@ -9,6 +9,26 @@ import '../widgets/section_card.dart';
 import '../widgets/selection_sheet.dart';
 import '../widgets/monthly_spending_chart.dart';
 
+/// Reuse computed values when tab changes/search/selection rebuild the parent.
+/// The existing CollectionStats remains the source of all calculations.
+class _DashboardStats {
+  _DashboardStats(CollectionStats stats)
+    : items = stats.items,
+      inHand = stats.inHand,
+      totalInvestment = stats.totalInvestment,
+      inHandValue = stats.inHandValue,
+      categoryCounts = stats.categoryCounts,
+      categorySpending = stats.categorySpending,
+      gameStatuses = stats.gameStatuses;
+  final List<CollectionItem> items;
+  final List<CollectionItem> inHand;
+  final double totalInvestment;
+  final double inHandValue;
+  final Map<String, int> categoryCounts;
+  final Map<String, double> categorySpending;
+  final Map<String, int> gameStatuses;
+}
+
 class StatsScreen extends StatefulWidget {
   const StatsScreen({super.key, required this.items});
   final List<CollectionItem> items;
@@ -20,6 +40,23 @@ class StatsScreen extends StatefulWidget {
 class StatsScreenState extends State<StatsScreen> {
   String? _category;
   int? _year;
+  _DashboardStats? _cachedStats;
+  Map<String, double>? _cachedMonthly;
+
+  @override
+  void didUpdateWidget(covariant StatsScreen oldWidget) {
+    super.didUpdateWidget(oldWidget);
+    if (!identical(oldWidget.items, widget.items)) {
+      _cachedStats = null;
+      _cachedMonthly = null;
+    }
+  }
+
+  void categoryRenamed(String oldName, String newName) {
+    if (_category == oldName) setState(() => _category = newName);
+    _cachedStats = null;
+    _cachedMonthly = null;
+  }
 
   Future<String?> _choose(
     String title,
@@ -53,7 +90,11 @@ class StatsScreenState extends State<StatsScreen> {
       (v) => v.isEmpty ? '全部分类' : v,
     );
     if (value != null && mounted) {
-      setState(() => _category = value.isEmpty ? null : value);
+      setState(() {
+        _category = value.isEmpty ? null : value;
+        _cachedStats = null;
+        _cachedMonthly = null;
+      });
     }
   }
 
@@ -70,7 +111,12 @@ class StatsScreenState extends State<StatsScreen> {
       _year?.toString() ?? '',
       (v) => v.isEmpty ? '全部年份' : '$v 年',
     );
-    if (value != null && mounted) setState(() => _year = int.tryParse(value));
+    if (value != null && mounted) {
+      setState(() {
+        _year = int.tryParse(value);
+        _cachedStats = null;
+      });
+    }
   }
 
   static const _barColors = [
@@ -84,15 +130,23 @@ class StatsScreenState extends State<StatsScreen> {
 
   @override
   Widget build(BuildContext context) {
-    final filtered = widget.items.where((item) {
-      if (_category != null && item.category != _category) return false;
-      if (_year != null &&
-          (item.purchaseDate ?? item.createdAt).year != _year) {
-        return false;
-      }
-      return true;
-    }).toList();
-    final stats = CollectionStats(filtered);
+    final stats = _cachedStats ??= _DashboardStats(
+      CollectionStats(
+        widget.items.where((item) {
+          if (_category != null && item.category != _category) return false;
+          if (_year != null &&
+              (item.purchaseDate ?? item.createdAt).year != _year) {
+            return false;
+          }
+          return true;
+        }).toList(),
+      ),
+    );
+    final monthly = _cachedMonthly ??= CollectionStats(
+      widget.items
+          .where((item) => _category == null || item.category == _category)
+          .toList(),
+    ).monthlySpending;
     return Center(
       child: ConstrainedBox(
         constraints: const BoxConstraints(maxWidth: 760),
@@ -149,19 +203,9 @@ class StatsScreenState extends State<StatsScreen> {
             ),
             Padding(
               padding: const EdgeInsets.only(bottom: AppSpacing.lg),
-              child: MonthlySpendingChart(
-                values: CollectionStats(
-                  widget.items
-                      .where(
-                        (item) =>
-                            _category == null || item.category == _category,
-                      )
-                      .toList(),
-                ).monthlySpending,
-                year: _year,
-              ),
+              child: MonthlySpendingChart(values: monthly, year: _year),
             ),
-            if (_category == null || _category == '游戏')
+            if (_category == null || stats.items.any((item) => item.isGame))
               _panel(
                 context,
                 '游戏 · 游玩状态',

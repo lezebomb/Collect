@@ -6,6 +6,7 @@ import 'package:supabase_flutter/supabase_flutter.dart';
 import '../core/app_theme.dart';
 import '../core/app_ui.dart';
 import '../core/price_display.dart';
+import '../core/collection_snapshot.dart';
 import '../models/collection_item.dart';
 import '../models/user_preferences.dart';
 import '../repositories/item_repository.dart';
@@ -73,7 +74,7 @@ class _CollectionScreenState extends State<CollectionScreen> {
   late final _local = widget.local ?? LocalWorkspaceStore();
   final _statsKey = GlobalKey<StatsScreenState>();
   PriceDisplay _priceDisplay = PriceDisplay.original;
-  late Future<_HomeData> _data = _load();
+  late Future<_HomeData> _data;
   _HomeData? _current;
   final _search = TextEditingController();
   int _tab = 0;
@@ -83,6 +84,12 @@ class _CollectionScreenState extends State<CollectionScreen> {
   bool _signingOut = false;
   bool _confirmingSignOut = false;
   int _loadRevision = 0;
+  int _itemEdits = 0;
+  int _preferenceEdits = 0;
+  int _categoryEdits = 0;
+  bool _syncing = false;
+  bool _syncError = false;
+  bool _settingsReady = false;
   bool _selecting = false;
   final _selectedIds = <String>{};
   String? _managementMessage;
@@ -90,34 +97,140 @@ class _CollectionScreenState extends State<CollectionScreen> {
   int _managementTotal = 0;
   bool get _managing => _managementMessage != null;
 
+  @override
+  void initState() {
+    super.initState();
+    _data = _load();
+  }
+
+  void _persist() {
+    final current = _current;
+    final owner = _client.auth.currentUser?.id;
+    if (current == null || owner == null || !_settingsReady || _signingOut) {
+      return;
+    }
+    unawaited(
+      _local
+          .saveCollectionSnapshot(
+            owner,
+            CollectionSnapshot(
+              items: current.items,
+              preferences: current.preferences,
+              categories: current.categories,
+            ),
+          )
+          .catchError((Object _) {
+            debugPrint('Collection cache could not be saved');
+          }),
+    );
+  }
+
   Future<_HomeData> _load({bool refresh = false}) async {
     final revision = ++_loadRevision;
-    final results =
-        await Future.wait<Object>([
-          _itemsRepository.list(),
-          _preferencesRepository.load(refresh: refresh),
-          _preferencesRepository.categories(refresh: refresh),
-          _local.loadPriceDisplay(_client.auth.currentUser!.id).catchError((
-            Object error,
-          ) {
-            debugPrint('Local display preference could not be loaded: $error');
-            return _priceDisplay;
-          }),
-        ]).catchError((Object error, StackTrace stack) {
-          debugPrint('Collection load failed: $error');
-          Error.throwWithStackTrace(error, stack);
-        });
-    final next = (
-      items: results[0] as List<CollectionItem>,
-      preferences: results[1] as UserPreferences,
-      categories: results[2] as List<String>,
-    );
-    if (revision == _loadRevision) {
-      _current = next;
-      _priceDisplay = results[3] as PriceDisplay;
-      _selectedIds.retainAll(next.items.map((item) => item.id));
+    final owner = _client.auth.currentUser!.id;
+    final itemEdits = _itemEdits;
+    final preferenceEdits = _preferenceEdits;
+    final categoryEdits = _categoryEdits;
+    var items = _current?.items;
+    var prefs = _current?.preferences ?? const UserPreferences();
+    var categories = _current?.categories ?? <String>[];
+    var itemsLoaded = false;
+    var prefsLoaded = false;
+    var categoriesLoaded = false;
+    var prefsReady = _settingsReady;
+    var categoriesReady = _settingsReady;
+    var failed = false;
+    _syncing = true;
+    _syncError = false;
+
+    void publish() {
+      if (!mounted ||
+          revision != _loadRevision ||
+          items == null ||
+          _client.auth.currentUser?.id != owner) {
+        return;
+      }
+      setState(() {
+        _current = (
+          items: _itemEdits == itemEdits ? items! : _current!.items,
+          preferences: _preferenceEdits == preferenceEdits
+              ? prefs
+              : _current!.preferences,
+          categories: _categoryEdits == categoryEdits
+              ? categories
+              : _current!.categories,
+        );
+        _settingsReady = prefsReady && categoriesReady;
+        _selectedIds.retainAll(_current!.items.map((item) => item.id));
+      });
+      _persist();
     }
-    return next;
+
+    // Start cloud work and local restoration concurrently. The wall and stats
+    // become usable as soon as items arrive, without waiting on settings.
+    await Future.wait<void>([
+      _itemsRepository
+          .list(refresh: refresh)
+          .then((value) {
+            itemsLoaded = true;
+            items = value;
+            publish();
+          })
+          .catchError((Object _) {
+            failed = true;
+          }),
+      _preferencesRepository
+          .load(refresh: refresh)
+          .then((value) {
+            prefsLoaded = prefsReady = true;
+            prefs = value;
+            publish();
+          })
+          .catchError((Object _) {
+            failed = true;
+          }),
+      _preferencesRepository
+          .categories(refresh: refresh)
+          .then((value) {
+            categoriesLoaded = categoriesReady = true;
+            categories = value;
+            publish();
+          })
+          .catchError((Object _) {
+            failed = true;
+          }),
+      if (!refresh && _current == null)
+        _local
+            .loadCollectionSnapshot(owner)
+            .then((value) {
+              if (value == null) return;
+              if (!itemsLoaded) items = value.items;
+              if (!prefsLoaded) prefs = value.preferences;
+              if (!categoriesLoaded) categories = value.categories;
+              prefsReady = categoriesReady = true;
+              publish();
+            })
+            .catchError((Object _) {
+              debugPrint('Collection cache unavailable; using cloud data');
+            }),
+      _local
+          .loadPriceDisplay(owner)
+          .then((value) {
+            if (mounted && revision == _loadRevision) {
+              setState(() => _priceDisplay = value);
+            }
+          })
+          .catchError((Object _) {}),
+    ]);
+    if (mounted && revision == _loadRevision) {
+      setState(() {
+        _syncing = false;
+        _syncError = failed;
+      });
+    }
+    final current = _current;
+    if (current == null) throw StateError('数据加载失败，请重试');
+    return current;
   }
 
   Future<void> _reload() async {
@@ -138,6 +251,8 @@ class _CollectionScreenState extends State<CollectionScreen> {
   void _settingsChanged(UserPreferences preferences, List<String> categories) {
     final current = _current;
     if (!mounted || current == null) return;
+    ++_preferenceEdits;
+    ++_categoryEdits;
     setState(() {
       _current = (
         items: current.items,
@@ -146,9 +261,49 @@ class _CollectionScreenState extends State<CollectionScreen> {
       );
       _data = Future.value(_current!);
     });
+    _persist();
+  }
+
+  void _categoryRenamed(String oldName, String newName) {
+    final current = _current;
+    if (current == null) return;
+    ++_itemEdits;
+    _itemsRepository.categoryRenamed(oldName, newName);
+    _statsKey.currentState?.categoryRenamed(oldName, newName);
+    setState(() {
+      if (_category == oldName) _category = newName;
+      _current = (
+        items: List.unmodifiable([
+          for (final item in current.items)
+            if (item.category == oldName)
+              CollectionSnapshot.withCategory(item, newName)
+            else
+              item,
+        ]),
+        preferences: current.preferences,
+        categories: current.categories,
+      );
+      _data = Future.value(_current!);
+    });
+  }
+
+  void _itemsImported(List<CollectionItem> items) {
+    final current = _current;
+    if (!mounted || current == null) return;
+    ++_itemEdits;
+    setState(() {
+      _current = (
+        items: List.unmodifiable([...items, ...current.items]),
+        preferences: current.preferences,
+        categories: current.categories,
+      );
+      _data = Future.value(_current!);
+    });
+    _persist();
   }
 
   Future<void> _applyItemChange(String id, CollectionItem? item) async {
+    ++_itemEdits;
     final current = _current ?? await _data;
     final items = current.items.where((existing) => existing.id != id).toList();
     if (item != null) items.insert(0, item);
@@ -162,6 +317,7 @@ class _CollectionScreenState extends State<CollectionScreen> {
         _data = Future.value(_current!);
       });
     }
+    _persist();
   }
 
   Future<void> _syncCategories() async {
@@ -375,7 +531,7 @@ class _CollectionScreenState extends State<CollectionScreen> {
 
   void _applyBatch(List<CollectionItem> changed, Set<String> deleted) {
     final current = _current!;
-    ++_loadRevision;
+    ++_itemEdits;
     final byId = {for (final item in changed) item.id: item};
     setState(() {
       _current = (
@@ -389,6 +545,7 @@ class _CollectionScreenState extends State<CollectionScreen> {
       _data = Future.value(_current!);
       _selectedIds.removeAll({...byId.keys, ...deleted});
     });
+    _persist();
   }
 
   Future<void> _runManagement(
@@ -548,6 +705,9 @@ class _CollectionScreenState extends State<CollectionScreen> {
     if (confirmed != true || !mounted) return;
     setState(() => _signingOut = true);
     try {
+      final owner = _client.auth.currentUser!.id;
+      // Keep local drafts, but remove cached cloud data after explicit logout.
+      await _local.clearCollectionSnapshot(owner).catchError((Object _) {});
       await _auth.signOut();
     } catch (error) {
       if (mounted) {
@@ -682,49 +842,75 @@ class _CollectionScreenState extends State<CollectionScreen> {
               ...data.categories,
               ...data.items.map((item) => item.category),
             }.toList();
-            return IndexedStack(
-              index: _tab,
+            return Column(
               children: [
-                AbsorbPointer(
-                  absorbing: _managing,
-                  child: CollectionWall(
-                    items: _visible(data.items),
-                    total: data.items.length,
-                    categories: categories,
-                    category: _category,
-                    preferences: data.preferences,
-                    priceDisplay: _priceDisplay,
-                    images: _images,
-                    search: _search,
-                    searchExpanded: _searchExpanded,
-                    onSearch: () => setState(() {}),
-                    onCloseSearch: () {
-                      FocusScope.of(context).unfocus();
-                      setState(() {
-                        _search.clear();
-                        _searchExpanded = false;
-                      });
-                    },
-                    onCategory: (value) => setState(() => _category = value),
-                    onOpen: _selecting ? _toggleSelection : _open,
-                    onLongPress: _quickActions,
-                    onManage: _startSelection,
-                    selectionMode: _selecting,
-                    selectedIds: _selectedIds,
-                    onRefresh: _reload,
+                if (_syncing) const LinearProgressIndicator(minHeight: 2),
+                if (_syncError)
+                  TextButton.icon(
+                    onPressed: _reload,
+                    icon: const Icon(Icons.sync_problem_outlined, size: 16),
+                    label: const Text('部分数据同步失败，点击重试'),
                   ),
-                ),
-                StatsScreen(key: _statsKey, items: data.items),
-                SettingsScreen(
-                  repository: _preferencesRepository,
-                  backup: _backup,
-                  images: _images,
-                  initialPreferences: data.preferences,
-                  initialCategories: data.categories,
-                  priceDisplay: _priceDisplay,
-                  onPriceDisplayChanged: _setPriceDisplay,
-                  onChanged: _settingsChanged,
-                  onDataChanged: _reload,
+                Expanded(
+                  child: IndexedStack(
+                    index: _tab,
+                    children: [
+                      AbsorbPointer(
+                        absorbing: _managing,
+                        child: CollectionWall(
+                          items: _visible(data.items),
+                          total: data.items.length,
+                          categories: categories,
+                          category: _category,
+                          preferences: data.preferences,
+                          priceDisplay: _priceDisplay,
+                          images: _images,
+                          search: _search,
+                          searchExpanded: _searchExpanded,
+                          onSearch: () => setState(() {}),
+                          onCloseSearch: () {
+                            FocusScope.of(context).unfocus();
+                            setState(() {
+                              _search.clear();
+                              _searchExpanded = false;
+                            });
+                          },
+                          onCategory: (value) =>
+                              setState(() => _category = value),
+                          onOpen: _selecting ? _toggleSelection : _open,
+                          onLongPress: _quickActions,
+                          onManage: _startSelection,
+                          selectionMode: _selecting,
+                          selectedIds: _selectedIds,
+                          onRefresh: _reload,
+                        ),
+                      ),
+                      StatsScreen(key: _statsKey, items: data.items),
+                      if (!_settingsReady)
+                        Center(
+                          child: _syncing
+                              ? const CircularProgressIndicator()
+                              : TextButton(
+                                  onPressed: _reload,
+                                  child: const Text('设置加载失败，点击重试'),
+                                ),
+                        )
+                      else
+                        SettingsScreen(
+                          repository: _preferencesRepository,
+                          backup: _backup,
+                          images: _images,
+                          initialPreferences: data.preferences,
+                          initialCategories: data.categories,
+                          priceDisplay: _priceDisplay,
+                          onPriceDisplayChanged: _setPriceDisplay,
+                          onChanged: _settingsChanged,
+                          onDataChanged: _reload,
+                          onCategoryRenamed: _categoryRenamed,
+                          onItemsImported: _itemsImported,
+                        ),
+                    ],
+                  ),
                 ),
               ],
             );

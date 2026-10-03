@@ -131,6 +131,41 @@ class _Harness {
 Finder get _name => find.widgetWithText(TextFormField, '名称');
 
 void main() {
+  testWidgets(
+    'PC game edit auto-selects digital edition and hides physical choice; save sends digital',
+    (tester) async {
+      final h = _Harness();
+      await h.open(
+        tester,
+        initial: CollectionItem(
+          id: 'pc',
+          userId: 'alice',
+          name: 'PC game',
+          category: '游戏',
+          gamePlatform: 'PC',
+          gameEdition: '实体版',
+          createdAt: DateTime(2026),
+        ),
+      );
+      await tester.scrollUntilVisible(
+        find.text('数字版 · PC 平台自动选择'),
+        350,
+        scrollable: find.byType(Scrollable).first,
+      );
+      expect(find.text('实体版'), findsNothing);
+      await tester.scrollUntilVisible(
+        find.text('保存修改'),
+        350,
+        scrollable: find.byType(Scrollable).first,
+      );
+      await tester.tap(find.text('保存修改'));
+      await tester.pump();
+      expect(h.items.requested!.gameEdition, '数字版');
+      h.items.reply!.complete(h.items.requested!);
+      await tester.pumpAndSettle();
+      expect(h.saved!.gameEdition, '数字版');
+    },
+  );
   testWidgets('Blank add returns without a draft prompt', (tester) async {
     final h = _Harness();
     await h.open(tester);

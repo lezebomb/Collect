@@ -75,7 +75,9 @@ class _ItemFormScreenState extends State<ItemFormScreen> {
   late String _currency = widget.initial?.currency ?? 'CNY';
   late String? _platform = widget.initial?.gamePlatform;
   late String? _contentType = widget.initial?.gameContentType;
-  late String? _edition = widget.initial?.gameEdition;
+  late String? _edition = widget.initial?.gamePlatform == 'PC'
+      ? '数字版'
+      : widget.initial?.gameEdition;
   late String? _playStatus = widget.initial?.gamePlayStatus;
   late DateTime? _purchaseDate = widget.initial?.purchaseDate;
   late List<String> _categories = {
@@ -114,6 +116,9 @@ class _ItemFormScreenState extends State<ItemFormScreen> {
   };
 
   bool get _dirty => jsonEncode(_fields()) != jsonEncode(_baseline);
+  bool get _showGameFields =>
+      _category == '游戏' ||
+      (widget.initial?.isGame == true && _category == widget.initial?.category);
 
   Future<void> _initializeForm() async {
     await _loadCategories();
@@ -155,7 +160,7 @@ class _ItemFormScreenState extends State<ItemFormScreen> {
       _currency = draft['currency'] as String? ?? 'CNY';
       _platform = draft['platform'] as String?;
       _contentType = draft['content_type'] as String?;
-      _edition = draft['edition'] as String?;
+      _edition = _platform == 'PC' ? '数字版' : draft['edition'] as String?;
       _playStatus = draft['play_status'] as String?;
       _purchaseDate = DateTime.tryParse(
         draft['purchase_date'] as String? ?? '',
@@ -827,7 +832,7 @@ class _ItemFormScreenState extends State<ItemFormScreen> {
       priceCny: priceCny,
       gamePlatform: _platform,
       gameContentType: _contentType,
-      gameEdition: _edition,
+      gameEdition: _platform == 'PC' ? '数字版' : _edition,
       gamePlayStatus: _playStatus,
       createdAt: widget.initial?.createdAt ?? DateTime.now().toUtc(),
     );
@@ -1002,7 +1007,7 @@ class _ItemFormScreenState extends State<ItemFormScreen> {
                       ],
                     ),
                   ),
-                  if (_category == '游戏')
+                  if (_showGameFields)
                     Padding(
                       padding: const EdgeInsets.only(top: AppSpacing.lg),
                       child: SectionCard(
@@ -1014,7 +1019,10 @@ class _ItemFormScreenState extends State<ItemFormScreen> {
                           edition: _edition,
                           playStatus: _playStatus,
                           busy: _busy,
-                          onPlatform: (v) => setState(() => _platform = v),
+                          onPlatform: (v) => setState(() {
+                            _platform = v;
+                            if (v == 'PC') _edition = '数字版';
+                          }),
                           onContentType: (v) =>
                               setState(() => _contentType = v),
                           onEdition: (v) => setState(() => _edition = v),

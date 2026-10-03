@@ -47,7 +47,13 @@ class ItemGameSection extends StatelessWidget {
       const SizedBox(height: AppSpacing.md),
       _choice('内容类型', contentType, gameContentTypes, onContentType),
       const SizedBox(height: AppSpacing.md),
-      _choice('版本类型', edition, gameEditions, onEdition),
+      if (platform == 'PC')
+        const Align(
+          alignment: Alignment.centerLeft,
+          child: Text('数字版 · PC 平台自动选择'),
+        )
+      else
+        _choice('版本类型', edition, gameEditions, onEdition),
       const SizedBox(height: AppSpacing.md),
       _choice('游玩状态', playStatus, gamePlayStatuses, onPlayStatus),
     ],

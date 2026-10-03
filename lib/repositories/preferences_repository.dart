@@ -153,4 +153,48 @@ class PreferencesRepository {
       rethrow;
     }
   }
+
+  Future<int> renameCategory(String oldName, String newName) async {
+    final name = newName.trim();
+    if (name.isEmpty || name.length > 60) {
+      throw const FormatException('分类名称需为 1–60 个字');
+    }
+    if (name == oldName) return 0;
+    final owner = userId;
+    final before = await categories();
+    if (before.contains(name)) throw const FormatException('已存在同名分类');
+    final count = await client.rpc<int>(
+      'rename_collection_category',
+      params: {'old_name': oldName, 'new_name': name},
+    );
+    final current = _categories.peek(owner) ?? before;
+    _categories.put(
+      owner,
+      List.unmodifiable([
+        for (final value in current) value == oldName ? name : value,
+      ]),
+    );
+    return count;
+  }
+
+  Future<void> addCategories(Iterable<String> names) async {
+    final owner = userId;
+    final values = names.map((name) => name.trim()).toSet();
+    if (values.isEmpty) return;
+    if (values.any((name) => name.isEmpty || name.length > 60)) {
+      throw const FormatException('分类名称需为 1–60 个字');
+    }
+    final before = await categories();
+    await client
+        .from('user_categories')
+        .upsert(
+          [
+            for (final name in values) {'user_id': owner, 'name': name},
+          ],
+          onConflict: 'user_id,name',
+          ignoreDuplicates: true,
+        );
+    final current = _categories.peek(owner) ?? before;
+    _categories.put(owner, List.unmodifiable({...current, ...values}));
+  }
 }

@@ -1,8 +1,14 @@
+import 'dart:convert';
+import 'dart:typed_data';
+
+import 'package:file_picker/file_picker.dart';
 import 'package:flutter/material.dart';
 
 import '../core/app_ui.dart';
 import '../core/price_display.dart';
 import '../models/user_preferences.dart';
+import '../models/collection_item.dart';
+import '../services/item_list_import.dart';
 import '../repositories/preferences_repository.dart';
 import '../services/backup_service.dart';
 import '../services/cover_image_service.dart';
@@ -11,6 +17,7 @@ import '../widgets/loading_overlay.dart';
 import '../widgets/category_chip.dart';
 import '../widgets/controller_symbols.dart';
 import '../widgets/rounded_choice_field.dart';
+import '../widgets/selection_sheet.dart';
 
 class SettingsScreen extends StatefulWidget {
   const SettingsScreen({
@@ -24,6 +31,8 @@ class SettingsScreen extends StatefulWidget {
     required this.initialCategories,
     this.priceDisplay = PriceDisplay.original,
     this.onPriceDisplayChanged,
+    this.onCategoryRenamed,
+    this.onItemsImported,
   });
   final PreferencesRepository repository;
   final BackupService backup;
@@ -34,6 +43,8 @@ class SettingsScreen extends StatefulWidget {
   final List<String> initialCategories;
   final PriceDisplay priceDisplay;
   final Future<void> Function(PriceDisplay)? onPriceDisplayChanged;
+  final void Function(String oldName, String newName)? onCategoryRenamed;
+  final void Function(List<CollectionItem>)? onItemsImported;
 
   @override
   State<SettingsScreen> createState() => _SettingsScreenState();
@@ -49,6 +60,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
   bool _savingDisplay = false;
   bool _savingPrefs = false;
   final _pendingCategories = <String>{};
+  bool _renamingCategory = false;
   bool get _heavyDisabled =>
       _busy || _savingPrefs || _pendingCategories.isNotEmpty;
 
@@ -178,6 +190,88 @@ class _SettingsScreenState extends State<SettingsScreen> {
     }
   }
 
+  Future<void> _categoryActions(String category) async {
+    if (_heavyDisabled || _renamingCategory) return;
+    final edit = await showSelectionSheet<bool>(
+      context: context,
+      title: category,
+      builder: (context) => ListTile(
+        leading: const Icon(Icons.edit_outlined),
+        title: const Text('编辑分类名称'),
+        subtitle: const Text('该分类的藏品会一起归入新名称'),
+        onTap: () => Navigator.pop(context, true),
+      ),
+    );
+    if (edit != true || !mounted) return;
+    var enteredName = category;
+    String? validation;
+    final name = await showDialog<String>(
+      context: context,
+      builder: (context) => StatefulBuilder(
+        builder: (context, update) => AlertDialog(
+          title: const Text('编辑分类名称'),
+          content: TextFormField(
+            initialValue: category,
+            onChanged: (value) => enteredName = value,
+            autofocus: true,
+            maxLength: 60,
+            decoration: InputDecoration(
+              labelText: '分类名称',
+              errorText: validation,
+            ),
+          ),
+          actions: [
+            TextButton(
+              onPressed: () => Navigator.pop(context),
+              child: const Text('取消'),
+            ),
+            FilledButton(
+              onPressed: () {
+                final value = enteredName.trim();
+                if (value.isEmpty ||
+                    (_categories.contains(value) && value != category)) {
+                  update(
+                    () => validation = value.isEmpty ? '请输入分类名称' : '已存在同名分类',
+                  );
+                } else {
+                  Navigator.pop(context, value);
+                }
+              },
+              child: const Text('保存'),
+            ),
+          ],
+        ),
+      ),
+    );
+    if (name == null || name == category || !mounted) return;
+    setState(() {
+      _renamingCategory = true;
+      _deleteMode = false;
+      _pendingCategories.add(category);
+    });
+    try {
+      final count = await widget.repository.renameCategory(category, name);
+      if (!mounted) return;
+      setState(
+        () => _categories = [
+          for (final value in _categories) value == category ? name : value,
+        ],
+      );
+      widget.onCategoryRenamed?.call(category, name);
+      _notify();
+      _message('分类已改名，$count 件藏品已同步');
+    } catch (error) {
+      if (mounted) _message('修改分类失败，原分类和藏品已保留：$error');
+    } finally {
+      if (mounted) {
+        setState(() {
+          _pendingCategories.remove(category);
+          _renamingCategory = false;
+        });
+      }
+    }
+  }
+
   Future<void> _export() async {
     setState(() {
       _busy = true;
@@ -188,6 +282,111 @@ class _SettingsScreenState extends State<SettingsScreen> {
       if (mounted && result != null) _message('备份已保存：$result');
     } catch (error) {
       if (mounted) _message('备份失败：$error');
+    } finally {
+      if (mounted) setState(() => _busy = false);
+    }
+  }
+
+  Future<void> _saveImportTemplate() async {
+    try {
+      await FilePicker.saveFile(
+        fileName: 'Dearshelf-item-list.json',
+        bytes: Uint8List.fromList(utf8.encode(ItemListImport.template)),
+        mimeType: 'application/json',
+      );
+    } catch (error) {
+      if (mounted) _message('保存模板失败：$error');
+    }
+  }
+
+  Future<void> _importItemLists() async {
+    if (_heavyDisabled) return;
+    var writeStarted = false;
+    setState(() {
+      _busy = true;
+      _busyMessage = '请选择藏品清单文件…';
+    });
+    try {
+      final files = await FilePicker.pickFiles(
+        type: FileType.custom,
+        allowedExtensions: ['json'],
+      );
+      if (files.isEmpty || !mounted) return;
+      setState(() => _busyMessage = '正在检查导入文件，请稍候…');
+      final sources = <String, String>{};
+      for (var i = 0; i < files.length; i++) {
+        final length = await files[i].length();
+        if (length != null && length > ItemListImport.maxFileBytes) {
+          throw const FormatException('单个文件不能超过 5 MB');
+        }
+        final bytes = await files[i].readAsBytes();
+        if (bytes.length > ItemListImport.maxFileBytes) {
+          throw const FormatException('单个文件不能超过 5 MB');
+        }
+        sources['${i + 1}. ${files[i].name}'] = utf8.decode(bytes);
+      }
+      final items = ItemListImport.parse(
+        sources,
+        owner: widget.repository.userId,
+      );
+      if (!mounted) return;
+      setState(() => _busy = false);
+      final confirmed = await showDialog<bool>(
+        context: context,
+        builder: (context) => AlertDialog(
+          title: Text('导入 ${items.length} 件藏品？'),
+          content: Text(
+            '已检查 ${files.length} 个文件。将新增藏品，封面可稍后添加。\n同名藏品也会新增，请勿重复导入同一清单。',
+          ),
+          actions: [
+            TextButton(
+              onPressed: () => Navigator.pop(context, false),
+              child: const Text('取消'),
+            ),
+            FilledButton(
+              onPressed: () => Navigator.pop(context, true),
+              child: const Text('导入'),
+            ),
+          ],
+        ),
+      );
+      if (confirmed != true || !mounted) return;
+      setState(() {
+        _busy = true;
+        _busyMessage = '正在导入 ${items.length} 件藏品，请稍候…';
+      });
+      writeStarted = true;
+      final saved = await widget.backup.items.importList(items);
+      widget.onItemsImported?.call(saved);
+      // The item INSERT is already confirmed; a category-option sync failure
+      // must never report that the import failed or invite duplicate imports.
+      var categoriesSynced = true;
+      try {
+        await widget.repository.addCategories(
+          saved.map((item) => item.category),
+        );
+        final categories = await widget.repository.categories();
+        if (mounted) setState(() => _categories = categories);
+        _notify();
+      } catch (_) {
+        categoriesSynced = false;
+      }
+      if (mounted) {
+        _message(
+          categoriesSynced
+              ? '已导入 ${saved.length} 件藏品，可在详情中添加封面'
+              : '已导入 ${saved.length} 件藏品；分类选项同步失败，可在设置中补充分类，请勿重复导入',
+        );
+      }
+    } catch (error) {
+      if (mounted) {
+        if (!writeStarted) {
+          _message('清单读取或检查失败，未新增藏品：$error');
+        } else {
+          widget.onDataChanged();
+          _message('导入结果未确认：$error。请检查展柜后再重试，避免重复导入。');
+        }
+      }
     } finally {
       if (mounted) setState(() => _busy = false);
     }
@@ -326,14 +525,14 @@ class _SettingsScreenState extends State<SettingsScreen> {
                       IconButton(
                         tooltip: _deleteMode ? '完成删除分类' : '删除分类',
                         isSelected: _deleteMode,
-                        onPressed: _busy
+                        onPressed: _heavyDisabled
                             ? null
                             : () => setState(() => _deleteMode = !_deleteMode),
                         icon: const Icon(Icons.remove_rounded),
                       ),
                       IconButton(
                         tooltip: '添加分类',
-                        onPressed: _busy ? null : _newCategory,
+                        onPressed: _heavyDisabled ? null : _newCategory,
                         icon: const Icon(Icons.add),
                       ),
                     ],
@@ -350,17 +549,22 @@ class _SettingsScreenState extends State<SettingsScreen> {
                               label: category,
                               deleting: _pendingCategories.contains(category),
                               onTap: () {},
+                              onLongPress: _heavyDisabled
+                                  ? null
+                                  : () => _categoryActions(category),
                               onDeleted: !_deleteMode
                                   ? null
                                   : () {
-                                      if (!_busy) _removeCategory(category);
+                                      if (!_heavyDisabled) {
+                                        _removeCategory(category);
+                                      }
                                     },
                             ),
                         ],
                       ),
                       const SizedBox(height: 12),
                       const Text(
-                        '删除分类只会移除选项，已有收藏会保留原分类。',
+                        '长按分类可编辑名称并同步藏品；删除分类只移除选项。',
                         style: TextStyle(fontSize: 12),
                       ),
                       if (_pendingCategories.isNotEmpty)
@@ -368,6 +572,30 @@ class _SettingsScreenState extends State<SettingsScreen> {
                           padding: EdgeInsets.only(top: 8),
                           child: LinearProgressIndicator(minHeight: 2),
                         ),
+                    ],
+                  ),
+                ),
+                const SizedBox(height: AppSpacing.lg),
+                SectionCard(
+                  title: '批量导入藏品',
+                  icon: Icons.playlist_add_rounded,
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.stretch,
+                    children: [
+                      const Text(
+                        '选择一个或多个按模板填写的 JSON 清单，一次最多 500 件。封面可在导入后逐件添加。',
+                      ),
+                      const SizedBox(height: 8),
+                      OutlinedButton.icon(
+                        onPressed: _heavyDisabled ? null : _saveImportTemplate,
+                        icon: const Icon(Icons.file_download_outlined),
+                        label: const Text('下载清单模板'),
+                      ),
+                      FilledButton.icon(
+                        onPressed: _heavyDisabled ? null : _importItemLists,
+                        icon: const Icon(Icons.playlist_add_rounded),
+                        label: const Text('选择清单文件导入'),
+                      ),
                     ],
                   ),
                 ),

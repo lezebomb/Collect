@@ -1,0 +1,22 @@
+{
+  "format": "dearshelf-item-list",
+  "version": 1,
+  "items": [
+    {
+      "name": "My favorite game",
+      "category": "游戏",
+      "description": "A little story about this favorite.",
+      "purchase_date": "2026-10-03",
+      "price": 68,
+      "currency": "CNY",
+      "game_platform": "PC",
+      "game_content_type": "本体",
+      "game_play_status": "游玩中"
+    },
+    {
+      "name": "A special keepsake",
+      "category": "纪念品",
+      "description": "Where I found it."
+    }
+  ]
+}

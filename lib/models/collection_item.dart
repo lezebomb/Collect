@@ -35,7 +35,13 @@ class CollectionItem {
   final String? gamePlayStatus;
   final DateTime createdAt;
 
-  bool get isGame => category == '游戏';
+  // Renaming a category must not discard an existing item's game metadata.
+  bool get isGame =>
+      category == '游戏' ||
+      gamePlatform != null ||
+      gameContentType != null ||
+      gameEdition != null ||
+      gamePlayStatus != null;
   int get ownedDays {
     final start = purchaseDate ?? createdAt;
     final today = DateTime.now();

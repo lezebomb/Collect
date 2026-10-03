@@ -1,3 +1,5 @@
+import 'dart:io';
+
 import 'package:flutter/material.dart';
 import 'package:flutter_cache_manager/flutter_cache_manager.dart';
 import 'package:image_picker/image_picker.dart';
@@ -46,6 +48,16 @@ class CoverImageService {
   }
 
   String cacheKey(String url) => _key(pathFromUrl(url) ?? url);
+
+  Future<File?> cachedCover(String? url) async {
+    if (pathFromUrl(url) == null || client.auth.currentUser == null) {
+      return null;
+    }
+    final entry = await imageCache.getFileFromCache(cacheKey(url!));
+    // Object paths contain a new UUID for every replacement, so an existing
+    // account-scoped file is safe to display without renewing its signed URL.
+    return entry != null && await entry.file.exists() ? entry.file : null;
+  }
 
   Future<void> clearSession() async {
     _signedUrls.clear();
