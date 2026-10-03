@@ -798,6 +798,11 @@ class _CollectionScreenState extends State<CollectionScreen> {
           ],
           if (_tab == 1) ...[
             IconButton(
+              tooltip: '筛选藏品',
+              icon: const Icon(Icons.checklist_rounded),
+              onPressed: () => _statsKey.currentState?.chooseItems(),
+            ),
+            IconButton(
               tooltip: '筛选分类',
               icon: const Icon(Icons.category_outlined),
               onPressed: () => _statsKey.currentState?.chooseCategory(),

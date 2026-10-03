@@ -8,6 +8,7 @@ import '../models/collection_item.dart';
 import '../widgets/section_card.dart';
 import '../widgets/selection_sheet.dart';
 import '../widgets/monthly_spending_chart.dart';
+import '../widgets/stats_item_selection.dart';
 
 /// Reuse computed values when tab changes/search/selection rebuild the parent.
 /// The existing CollectionStats remains the source of all calculations.
@@ -40,6 +41,7 @@ class StatsScreen extends StatefulWidget {
 class StatsScreenState extends State<StatsScreen> {
   String? _category;
   int? _year;
+  final Set<String> _excludedIds = {};
   _DashboardStats? _cachedStats;
   Map<String, double>? _cachedMonthly;
 
@@ -47,6 +49,8 @@ class StatsScreenState extends State<StatsScreen> {
   void didUpdateWidget(covariant StatsScreen oldWidget) {
     super.didUpdateWidget(oldWidget);
     if (!identical(oldWidget.items, widget.items)) {
+      final available = widget.items.map((item) => item.id).toSet();
+      _excludedIds.removeWhere((id) => !available.contains(id));
       _cachedStats = null;
       _cachedMonthly = null;
     }
@@ -91,12 +95,49 @@ class StatsScreenState extends State<StatsScreen> {
     );
     if (value != null && mounted) {
       setState(() {
-        _category = value.isEmpty ? null : value;
+        final category = value.isEmpty ? null : value;
+        if (_category != category) _excludedIds.clear();
+        _category = category;
         _cachedStats = null;
         _cachedMonthly = null;
       });
     }
   }
+
+  bool _matchesScope(CollectionItem item) =>
+      (_category == null || item.category == _category) &&
+      (_year == null || (item.purchaseDate ?? item.createdAt).year == _year);
+
+  Future<void> chooseItems() async {
+    final candidates = widget.items.where(_matchesScope).toList();
+    final excluded = await showSelectionSheet<Set<String>>(
+      context: context,
+      title: '筛选藏品',
+      heightFraction: .76,
+      scrollable: false,
+      builder: (context) => StatsItemSelection(
+        items: candidates,
+        excludedIds: _excludedIds,
+        scope:
+            '${_category ?? '全部分类'} · ${_year == null ? '全部年份' : '$_year 年'}',
+      ),
+    );
+    if (excluded == null || !mounted) return;
+    setState(() {
+      final available = widget.items.map((item) => item.id).toSet();
+      _excludedIds
+        ..clear()
+        ..addAll(excluded.where(available.contains));
+      _cachedStats = null;
+      _cachedMonthly = null;
+    });
+  }
+
+  void _resetItems() => setState(() {
+    _excludedIds.clear();
+    _cachedStats = null;
+    _cachedMonthly = null;
+  });
 
   Future<void> chooseYear() async {
     final years =
@@ -132,19 +173,20 @@ class StatsScreenState extends State<StatsScreen> {
   Widget build(BuildContext context) {
     final stats = _cachedStats ??= _DashboardStats(
       CollectionStats(
-        widget.items.where((item) {
-          if (_category != null && item.category != _category) return false;
-          if (_year != null &&
-              (item.purchaseDate ?? item.createdAt).year != _year) {
-            return false;
-          }
-          return true;
-        }).toList(),
+        widget.items
+            .where(
+              (item) => _matchesScope(item) && !_excludedIds.contains(item.id),
+            )
+            .toList(),
       ),
     );
     final monthly = _cachedMonthly ??= CollectionStats(
       widget.items
-          .where((item) => _category == null || item.category == _category)
+          .where(
+            (item) =>
+                (_category == null || item.category == _category) &&
+                !_excludedIds.contains(item.id),
+          )
           .toList(),
     ).monthlySpending;
     return Center(
@@ -159,6 +201,23 @@ class StatsScreenState extends State<StatsScreen> {
                 style: Theme.of(context).textTheme.bodySmall,
               ),
               const SizedBox(height: 12),
+            ],
+            if (_excludedIds.isNotEmpty) ...[
+              Wrap(
+                spacing: 8,
+                crossAxisAlignment: WrapCrossAlignment.center,
+                children: [
+                  TextButton.icon(
+                    onPressed: chooseItems,
+                    icon: const Icon(Icons.checklist_rounded, size: 18),
+                    label: Text(
+                      '统计 ${stats.items.length} 件 · 已排除 ${_excludedIds.length} 件',
+                    ),
+                  ),
+                  TextButton(onPressed: _resetItems, child: const Text('恢复全部')),
+                ],
+              ),
+              const SizedBox(height: 8),
             ],
 
             Row(

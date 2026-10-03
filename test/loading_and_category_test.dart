@@ -137,6 +137,34 @@ class _Harness {
 
 void main() {
   testWidgets(
+    'Statistics item checklist survives tab switches without refetching',
+    (tester) async {
+      final h = _Harness();
+      h.complete();
+      await h.open(tester);
+      await tester.pumpAndSettle();
+      await tester.tap(find.text('统计'));
+      await tester.pumpAndSettle();
+      await tester.tap(find.byTooltip('筛选藏品'));
+      await tester.pumpAndSettle();
+      expect(find.text('Fresh'), findsOneWidget);
+      await tester.tap(find.text('全不选'));
+      await tester.tap(find.text('应用筛选'));
+      await tester.pumpAndSettle();
+      expect(find.text('0 件物品'), findsOneWidget);
+      await tester.tap(find.text('设置'));
+      await tester.pumpAndSettle();
+      await tester.tap(find.text('展柜'));
+      await tester.pumpAndSettle();
+      expect(find.text('Fresh'), findsOneWidget);
+      await tester.tap(find.text('统计'));
+      await tester.pumpAndSettle();
+      expect(find.text('0 件物品'), findsOneWidget);
+      expect(h.items.calls, 1);
+      expect(tester.takeException(), isNull);
+    },
+  );
+  testWidgets(
     'Disk snapshot shows wall and statistics while all cloud work is pending; tabs do not refetch',
     (tester) async {
       final h = _Harness();

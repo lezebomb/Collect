@@ -547,6 +547,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
                           for (final category in _categories)
                             CategoryChip(
                               label: category,
+                              outlined: true,
                               deleting: _pendingCategories.contains(category),
                               onTap: () {},
                               onLongPress: _heavyDisabled

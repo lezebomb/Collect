@@ -1,7 +1,6 @@
 import 'package:flutter/material.dart';
 
 import '../core/app_theme.dart';
-import '../core/app_ui.dart';
 
 class CategoryChip extends StatelessWidget {
   const CategoryChip({
@@ -12,6 +11,7 @@ class CategoryChip extends StatelessWidget {
     this.onLongPress,
     this.onDeleted,
     this.deleting = false,
+    this.outlined = false,
   });
 
   final String label;
@@ -20,6 +20,7 @@ class CategoryChip extends StatelessWidget {
   final VoidCallback? onLongPress;
   final VoidCallback? onDeleted;
   final bool deleting;
+  final bool outlined;
 
   @override
   Widget build(BuildContext context) {
@@ -29,8 +30,16 @@ class CategoryChip extends StatelessWidget {
     return Semantics(
       selected: selected,
       child: Material(
-        color: selected ? AppTheme.accent : Colors.white,
-        borderRadius: BorderRadius.circular(AppRadius.pill),
+        color: selected
+            ? AppTheme.accent
+            : outlined
+            ? const Color(0xFFF3F6F0)
+            : Colors.white,
+        shape: StadiumBorder(
+          side: outlined
+              ? BorderSide(color: AppTheme.accent.withValues(alpha: .22))
+              : BorderSide.none,
+        ),
         clipBehavior: Clip.antiAlias,
         child: InkWell(
           onTap: onTap,
