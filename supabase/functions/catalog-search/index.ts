@@ -28,11 +28,39 @@ Deno.serve(async (request: Request) => {
     const user = await auth.json();
     if (!user.id || user.is_anonymous === true) return json({ error: "Sign in required" }, 401);
 
-    const raw = await request.text();
-    if (raw.length > 4096) return json({ error: "Request too large" }, 413);
-    const body = JSON.parse(raw);
+    const reader = request.body?.getReader();
+    if (!reader) return json({ error: "Invalid JSON" }, 400);
+    const decoder = new TextDecoder();
+    let raw = "";
+    let bytes = 0;
+    while (true) {
+      const chunk = await reader.read();
+      if (chunk.done) break;
+      bytes += chunk.value.byteLength;
+      if (bytes > 4096) {
+        await reader.cancel();
+        return json({ error: "Request too large" }, 413);
+      }
+      raw += decoder.decode(chunk.value, { stream: true });
+    }
+    raw += decoder.decode();
+    let body;
+    try { body = JSON.parse(raw); } catch (_) { return json({ error: "Invalid JSON" }, 400); }
+    if (!body || typeof body !== "object") return json({ error: "Invalid JSON" }, 400);
     const query = typeof body.query === "string" ? body.query.trim() : "";
     if (query.length < 2 || query.length > 160) return json({ error: "Invalid query" }, 400);
+    // Enforce the exact-email allowlist and persistent quotas in Postgres.
+    // The caller's JWT is used; this endpoint never needs a service-role key.
+    const permission = await fetch(`${Deno.env.get("SUPABASE_URL")}/rest/v1/rpc/take_email_collection_search_slot`, {
+      method: "POST",
+      headers: { Authorization: authorization, apikey: Deno.env.get("SUPABASE_ANON_KEY") ?? "",
+        "Content-Type": "application/json" },
+      body: "{}",
+      signal: AbortSignal.timeout(3000),
+    });
+    if (!permission.ok) return json({ error: "Access denied" }, 403);
+    if (await permission.json() !== true) return json({ error: "Search limit reached" }, 429);
+
     const key = Deno.env.get("TAVILY_API_KEY");
     if (!key) return json({ candidates: [], configured: false });
 

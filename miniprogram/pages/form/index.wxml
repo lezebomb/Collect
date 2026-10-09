@@ -1,0 +1,23 @@
+<view class="page">
+  <view class="title">{{editing ? '编辑收藏' : '添加收藏'}}</view>
+  <view class="error" wx:if="{{error}}">{{error}}</view>
+  <image wx:if="{{coverUrl}}" class="cover" src="{{coverUrl}}" mode="aspectFit" />
+  <view class="toolbar"><button disabled="{{busy}}" bindtap="choose">选择或拍摄封面</button><button disabled="{{busy}}" bindtap="removeCover">移除封面</button></view>
+  <view class="panel">
+    <view class="field"><text class="label">名称</text><input data-key="name" value="{{form.name}}" bindinput="input" maxlength="120" disabled="{{busy}}" /></view>
+    <view class="field"><text class="label">分类</text><picker data-key="category" data-options="categories" range="{{categories}}" bindchange="pick" disabled="{{busy}}"><view class="picker">{{form.category || '选择分类'}}</view></picker><input data-key="category" value="{{form.category}}" placeholder="或填写已有藏品的原分类" bindinput="input" maxlength="60" disabled="{{busy}}" /></view>
+    <view class="field"><text class="label">描述</text><textarea data-key="description" value="{{form.description}}" bindinput="input" maxlength="20000" disabled="{{busy}}" /></view>
+    <view class="field"><text class="label">购入日期</text><picker mode="date" value="{{form.purchase_date}}" bindchange="date" disabled="{{busy}}"><view class="picker">{{form.purchase_date || '未填写'}}</view></picker><button size="mini" bindtap="clearDate" disabled="{{busy}}">清除日期</button></view>
+    <view class="field"><text class="label">价格（可留空）</text><input type="digit" data-key="price" value="{{form.price}}" bindinput="input" disabled="{{busy}}" /></view>
+    <view class="field"><text class="label">币种</text><picker data-key="currency" data-options="currencies" range="{{currencies}}" bindchange="pick" disabled="{{busy}}"><view class="picker">{{form.currency}}</view></picker></view>
+    <view class="field" wx:if="{{form.currency !== 'CNY'}}"><text class="label">人民币折算额</text><input type="digit" data-key="price_cny" value="{{form.price_cny}}" bindinput="input" disabled="{{busy}}" /></view>
+    <block wx:if="{{form.category === '游戏' || form.game_platform}}">
+      <view class="field"><text class="label">游戏平台</text><picker data-key="game_platform" data-options="platforms" range="{{platforms}}" bindchange="pick" disabled="{{busy}}"><view class="picker">{{form.game_platform || '未填写'}}</view></picker></view>
+      <view class="field"><text class="label">游戏内容</text><picker data-key="game_content_type" data-options="contentTypes" range="{{contentTypes}}" bindchange="pick" disabled="{{busy}}"><view class="picker">{{form.game_content_type || '未填写'}}</view></picker></view>
+      <view class="field" wx:if="{{form.game_platform !== 'PC'}}"><text class="label">版本</text><picker data-key="game_edition" data-options="editions" range="{{editions}}" bindchange="pick" disabled="{{busy}}"><view class="picker">{{form.game_edition || '未填写'}}</view></picker></view>
+      <view class="field"><text class="label">游玩状态</text><picker data-key="game_play_status" data-options="playStatuses" range="{{playStatuses}}" bindchange="pick" disabled="{{busy}}"><view class="picker">{{form.game_play_status || '未填写'}}</view></picker></view>
+    </block>
+  </view>
+  <button class="primary" bindtap="save" loading="{{busy}}" disabled="{{busy}}">保存收藏</button>
+  <view class="muted">封面上传上限 2 MB。未保存的新收藏会在退出页面时保留本机草稿。</view>
+</view>

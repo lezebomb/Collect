@@ -1,0 +1,9 @@
+<view class="page">
+  <view wx:if="{{busy}}" class="muted">正在处理…</view><view class="error">{{error}}</view>
+  <block wx:if="{{item}}"><image wx:if="{{coverUrl}}" class="cover" src="{{coverUrl}}" mode="aspectFit" bindtap="preview" />
+    <view class="title">{{item.name}}</view><view class="muted">{{item.category}}</view>
+    <view class="panel"><view>{{item.priceText || '价格未填写'}}</view><view wx:if="{{item.currency !== 'CNY' && item.price_cny !== null}}">人民币折算：¥{{item.price_cny}}</view><view class="muted">购入：{{item.purchase_date || '未填写'}} · {{item.daysText}} {{item.dailyText}}</view><view style="white-space:pre-wrap;margin-top:24rpx">{{item.description}}</view></view>
+    <view class="panel" wx:if="{{item.game_platform || item.game_play_status}}">{{item.game_platform}} {{item.game_content_type}} {{item.game_edition}} {{item.game_play_status}}</view>
+    <view class="toolbar"><button bindtap="edit" class="primary" disabled="{{busy}}">编辑</button><button bindtap="remove" class="danger" disabled="{{busy}}">删除</button></view>
+  </block>
+</view>

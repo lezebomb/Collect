@@ -1,0 +1,14 @@
+<view class="page">
+  <view class="title">给喜欢的东西，一个长久的位置。</view>
+  <view class="muted">Dearshelf · 私人的数字收藏柜</view>
+  <view class="panel">
+    <view class="label">{{register ? '创建获准的账号' : '邮箱登录'}}</view>
+    <view class="field"><input value="{{email}}" data-key="email" bindinput="input" placeholder="管理员已邀请的邮箱" maxlength="254" disabled="{{busy}}" /></view>
+    <view class="field"><input value="{{password}}" password data-key="password" bindinput="input" placeholder="密码" maxlength="128" disabled="{{busy}}" /></view>
+    <view class="error" wx:if="{{error}}">{{error}}</view>
+    <button class="primary" loading="{{busy}}" disabled="{{busy}}" bindtap="submit">{{register ? '注册' : '登录'}}</button>
+    <button wx:if="{{allowRegistration}}" disabled="{{busy}}" bindtap="toggle">{{register ? '返回登录' : '创建账号'}}</button>
+    <button disabled="{{busy}}" bindtap="logout">清除当前登录</button>
+  </view>
+  <view class="muted">仅开放给获准且已验证的邮箱。开通账号或找回密码，请联系管理员。</view>
+</view>

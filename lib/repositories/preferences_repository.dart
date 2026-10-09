@@ -1,4 +1,7 @@
 import 'package:flutter/foundation.dart';
+
+import 'dart:async';
+
 import 'package:image_picker/image_picker.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
 
@@ -53,12 +56,13 @@ class PreferencesRepository {
     UserPreferences current,
     XFile? file,
   ) async {
+    final owner = userId;
     final old = current.wallpaperUrl;
     String? uploaded;
     if (file != null) {
       uploaded = await images.upload(
         image: file,
-        userId: userId,
+        userId: owner,
         itemId: 'wallpaper',
       );
     }
@@ -67,8 +71,20 @@ class PreferencesRepository {
       next = await save(
         current.copyWith(wallpaperUrl: uploaded, clearWallpaper: file == null),
       );
-    } catch (_) {
-      if (uploaded != null) {
+    } catch (error) {
+      if (error is! PostgrestException) {
+        try {
+          final confirmed = await load(refresh: true);
+          if (client.auth.currentUser?.id == owner &&
+              confirmed.wallpaperUrl == uploaded) {
+            if (old != null && old != uploaded) {
+              unawaited(images.remove(old).catchError((Object _) {}));
+            }
+            return confirmed;
+          }
+        } catch (_) {}
+      }
+      if (uploaded != null && error is PostgrestException) {
         try {
           await images.remove(uploaded);
         } catch (error) {
@@ -78,11 +94,11 @@ class PreferencesRepository {
       rethrow;
     }
     if (old != null && old != next.wallpaperUrl) {
-      try {
-        await images.remove(old);
-      } catch (error) {
-        debugPrint('Could not remove previous wallpaper: $error');
-      }
+      unawaited(
+        images.remove(old).catchError((Object error) {
+          debugPrint('Could not remove previous wallpaper: $error');
+        }),
+      );
     }
     return next;
   }

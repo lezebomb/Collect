@@ -1,4 +1,7 @@
 import 'package:file_picker/file_picker.dart';
+
+import 'dart:async';
+
 import 'package:flutter/foundation.dart';
 import 'package:image_picker/image_picker.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
@@ -126,18 +129,18 @@ class BackupService {
           data['cover_image'] = uploaded;
         }
         await client.from('items').upsert(data);
-      } catch (_) {
-        if (uploaded != null) await _tryRemove(uploaded);
+      } catch (error) {
+        if (uploaded != null && error is PostgrestException) {
+          unawaited(_tryRemove(uploaded));
+        }
         rethrow;
       }
       if (oldCover != null && oldCover != uploaded) {
-        await _tryRemove(oldCover);
+        unawaited(_tryRemove(oldCover));
       }
       count++;
     }
-    for (final name in rawCategories.cast<String>()) {
-      await preferences.addCategory(name);
-    }
+    await preferences.addCategories(rawCategories.cast<String>());
     var prefs = UserPreferences.fromJson(Map<String, dynamic>.from(rawPrefs));
     final wallpaperFile = root['wallpaper_file'] as String?;
     String? uploadedWallpaper;
@@ -154,13 +157,15 @@ class BackupService {
     final oldPrefs = await preferences.load();
     try {
       await preferences.save(prefs);
-    } catch (_) {
-      if (uploadedWallpaper != null) await _tryRemove(uploadedWallpaper);
+    } catch (error) {
+      if (uploadedWallpaper != null && error is PostgrestException) {
+        unawaited(_tryRemove(uploadedWallpaper));
+      }
       rethrow;
     }
     if (oldPrefs.wallpaperUrl != null &&
         oldPrefs.wallpaperUrl != prefs.wallpaperUrl) {
-      await _tryRemove(oldPrefs.wallpaperUrl);
+      unawaited(_tryRemove(oldPrefs.wallpaperUrl));
     }
     return count;
   }

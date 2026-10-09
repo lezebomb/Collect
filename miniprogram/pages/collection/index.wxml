@@ -1,0 +1,16 @@
+<view class="page" style="{{wallpaperUrl ? 'background-image:url('+wallpaperUrl+');background-size:cover;background-attachment:fixed;min-height:100vh' : ''}}">
+  <view class="title">我的收藏柜</view>
+  <view class="toolbar"><button class="primary" bindtap="add" disabled="{{syncing || busy}}">添加收藏</button><button bindtap="stats">统计</button><button bindtap="settings">设置</button></view>
+  <input placeholder="搜索名称或描述" value="{{query}}" bindinput="input" />
+  <scroll-view scroll-x style="white-space:nowrap"><view class="chip {{category === '' ? 'active' : ''}}" data-value="" bindtap="category">全部</view><view wx:for="{{categories}}" wx:key="*this" class="chip {{category === item ? 'active' : ''}}" data-value="{{item}}" bindtap="category">{{item}}</view></scroll-view>
+  <view class="row"><picker range="{{sorts}}" value="{{sortIndex}}" bindchange="sort"><view class="picker">{{sorts[sortIndex]}}</view></picker><text class="muted">{{count}} 件</text><button size="mini" bindtap="select" disabled="{{syncing || busy}}">{{selecting ? '取消选择' : '批量管理'}}</button></view>
+  <view class="muted" wx:if="{{syncing}}">正在同步收藏…</view>
+  <view class="error" wx:if="{{error}}">{{error}}<button bindtap="refresh">重试</button></view>
+  <view class="toolbar" wx:if="{{selecting}}"><button class="danger" disabled="{{busy || !selected.length}}" bindtap="removeSelected">删除 {{selected.length}} 件</button><picker range="{{categories}}" bindchange="moveSelected" disabled="{{busy || !selected.length}}"><button>移动分类</button></picker></view>
+  <view class="grid"><view wx:for="{{rows}}" wx:key="id" class="card" data-id="{{item.id}}" bindtap="open">
+    <image wx:if="{{item.coverUrl}}" src="{{item.coverUrl}}" mode="aspectFit" lazy-load /><view wx:else class="muted panel">暂无封面</view>
+    <view class="card-content"><view class="name">{{item.selected ? '✓ ' : ''}}{{item.name}}</view><view class="muted">{{item.category}}</view><view wx:if="{{prefs.show_price}}">{{item.priceText}}</view><view class="muted">{{item.daysText}} {{item.dailyText}}</view></view>
+  </view></view>
+  <view class="row" wx:if="{{count}}"><button size="mini" bindtap="previous" disabled="{{pageNumber === 1}}">上一页</button><text class="muted">{{pageNumber}} / {{pageCount}}</text><button size="mini" bindtap="next" disabled="{{pageNumber === pageCount}}">下一页</button></view>
+  <view class="panel muted" wx:if="{{!rows.length && !syncing}}">还没有符合条件的收藏。</view>
+</view>

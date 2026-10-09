@@ -1,0 +1,9 @@
+<view class="page">
+  <view class="title">设置</view><view class="muted">{{email}}</view><view class="error">{{error}}</view>
+  <view class="panel"><view class="row"><text>显示价格</text><switch checked="{{prefs.show_price}}" data-key="show_price" bindchange="toggle" disabled="{{busy || !ready}}" /></view><view class="row"><text>显示拥有天数</text><switch checked="{{prefs.show_owned_days}}" data-key="show_owned_days" bindchange="toggle" disabled="{{busy || !ready}}" /></view><view class="row"><text>显示日均花费</text><switch checked="{{prefs.show_daily_cost}}" data-key="show_daily_cost" bindchange="toggle" disabled="{{busy || !ready}}" /></view></view>
+  <view class="panel"><view class="label">分类</view><view class="row" wx:for="{{categories}}" wx:key="*this"><text>{{item}}</text><view class="toolbar"><button size="mini" data-name="{{item}}" bindtap="renameCategory" disabled="{{busy}}">改名</button><button size="mini" class="danger" data-name="{{item}}" bindtap="removeCategory" disabled="{{busy}}">删除</button></view></view><input value="{{newCategory}}" bindinput="input" maxlength="60" placeholder="新分类名称" disabled="{{busy}}" /><button bindtap="addCategory" disabled="{{busy || !ready}}">添加分类</button></view>
+  <view class="panel"><view class="label">壁纸</view><button bindtap="wallpaper" disabled="{{busy || !ready}}">设置壁纸</button><button data-remove="true" bindtap="wallpaper" disabled="{{busy || !ready}}">移除壁纸</button></view>
+  <view class="panel"><view class="label">藏品清单</view><view class="muted">JSON 清单只包含文字和价格。完整图片 ZIP 备份请使用现有 Flutter 应用。</view><button bindtap="importList" disabled="{{busy || !ready}}">从聊天文件导入 JSON 清单</button><button bindtap="exportList" disabled="{{busy || !ready}}">导出 JSON 清单</button></view>
+  <view class="muted">访问权限和账号配额由管理员管理。小程序与现有应用使用同一账号和收藏数据。</view>
+  <button bindtap="logout" disabled="{{busy}}">退出登录</button>
+</view>

@@ -57,6 +57,14 @@ class LocalWorkspaceStore {
     if (await file.exists()) await file.delete();
   }
 
+  Future<List<String>> loadImageCleanup(String owner) async {
+    final values = (await _read(owner, 'image-cleanup'))?['urls'];
+    return values is List ? values.whereType<String>().toList() : [];
+  }
+
+  Future<void> saveImageCleanup(String owner, List<String> urls) =>
+      _write(owner, 'image-cleanup', {'urls': urls});
+
   Future<PriceDisplay> loadPriceDisplay(String owner) async =>
       (await _read(owner, 'display'))?['price_display'] == 'cny'
       ? PriceDisplay.cny

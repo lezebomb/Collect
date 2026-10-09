@@ -15,6 +15,10 @@ class AuthScreen extends StatefulWidget {
 }
 
 class _AuthScreenState extends State<AuthScreen> {
+  static const _allowRegistration = bool.fromEnvironment(
+    'COLLECTION_ALLOW_REGISTRATION',
+    defaultValue: false,
+  );
   final _formKey = GlobalKey<FormState>();
   final _email = TextEditingController();
   final _password = TextEditingController();
@@ -203,17 +207,20 @@ class _AuthScreenState extends State<AuthScreen> {
                         child: const Text('忘记密码？'),
                       ),
                     ),
-                  Center(
-                    child: TextButton(
-                      onPressed: _busy
-                          ? null
-                          : () => setState(() {
-                              _register = !_register;
-                              _message = null;
-                            }),
-                      child: Text(_register ? '已有账号？去登录' : '还没有账号？创建一个'),
+                  if (_allowRegistration)
+                    Center(
+                      child: TextButton(
+                        onPressed: _busy
+                            ? null
+                            : () => setState(() {
+                                _register = !_register;
+                                _message = null;
+                              }),
+                        child: Text(_register ? '已有账号？去登录' : '还没有账号？创建一个'),
+                      ),
                     ),
-                  ),
+                  if (!_allowRegistration)
+                    const Center(child: Text('仅供已获授权的账号使用')),
                 ],
               ),
             ),

@@ -90,6 +90,7 @@ class _CollectionScreenState extends State<CollectionScreen> {
   bool _syncing = false;
   bool _syncError = false;
   bool _settingsReady = false;
+  Timer? _persistTimer;
   bool _selecting = false;
   final _selectedIds = <String>{};
   String? _managementMessage;
@@ -101,9 +102,15 @@ class _CollectionScreenState extends State<CollectionScreen> {
   void initState() {
     super.initState();
     _data = _load();
+    unawaited(_images.retryCleanup().catchError((Object _) {}));
   }
 
   void _persist() {
+    _persistTimer?.cancel();
+    _persistTimer = Timer(const Duration(milliseconds: 180), _persistNow);
+  }
+
+  void _persistNow() {
     final current = _current;
     final owner = _client.auth.currentUser?.id;
     if (current == null || owner == null || !_settingsReady || _signingOut) {
@@ -732,6 +739,8 @@ class _CollectionScreenState extends State<CollectionScreen> {
 
   @override
   void dispose() {
+    _persistTimer?.cancel();
+    _persistNow();
     _search.dispose();
     unawaited(
       _images.clearSession().catchError((Object error) {

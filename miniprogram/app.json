@@ -1,0 +1,6 @@
+{
+  "pages": ["pages/login/index", "pages/collection/index", "pages/form/index", "pages/detail/index", "pages/stats/index", "pages/settings/index"],
+  "window": { "navigationBarTitleText": "Dearshelf", "navigationBarBackgroundColor": "#f4f5ef", "navigationBarTextStyle": "black", "backgroundColor": "#f4f5ef" },
+  "style": "v2",
+  "lazyCodeLoading": "requiredComponents"
+}

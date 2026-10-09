@@ -98,6 +98,7 @@ class _ItemFormScreenState extends State<ItemFormScreen> {
   bool _restoredDraft = false;
   Map<String, dynamic>? _savedDraft;
   Map<String, dynamic>? _draftSnapshot;
+  String _newItemId = const Uuid().v4();
 
   Map<String, dynamic> _fields() => {
     'name': _name.text,
@@ -141,6 +142,10 @@ class _ItemFormScreenState extends State<ItemFormScreen> {
   }
 
   void _restoreDraft(Map<String, dynamic> draft) {
+    final savedId = draft['draft_item_id'];
+    if (savedId is String && RegExp(r'^[0-9a-fA-F-]{36}$').hasMatch(savedId)) {
+      _newItemId = savedId;
+    }
     final encodedCover = draft['cover_bytes'] as String?;
     final bytes = encodedCover == null ? null : base64Decode(encodedCover);
     if (bytes != null && bytes.length > CoverImageService.maxBytes) {
@@ -296,6 +301,7 @@ class _ItemFormScreenState extends State<ItemFormScreen> {
       try {
         if (save) {
           await _drafts.saveDraft(_owner, {
+            'draft_item_id': _newItemId,
             ..._fields()..remove('cover_identity'),
             'version': 1,
             if (_preview != null) 'cover_bytes': base64Encode(_preview!),
@@ -820,7 +826,7 @@ class _ItemFormScreenState extends State<ItemFormScreen> {
     if (user == null) return;
     _beginLoading(widget.initial == null ? '正在保存收藏…' : '正在保存修改…');
     final item = CollectionItem(
-      id: widget.initial?.id ?? const Uuid().v4(),
+      id: widget.initial?.id ?? _newItemId,
       userId: user.id,
       name: _name.text.trim(),
       category: _category!,

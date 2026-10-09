@@ -1,4 +1,7 @@
 import 'package:flutter/foundation.dart';
+
+import 'dart:async';
+
 import 'package:image_picker/image_picker.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
 
@@ -85,6 +88,7 @@ class ItemRepository {
   Future<CollectionItem> create(CollectionItem item, XFile? cover) async {
     final userId = _userId;
     String? uploadedUrl;
+    var writeStarted = false;
     try {
       if (cover != null) {
         uploadedUrl = await images.upload(
@@ -93,6 +97,7 @@ class ItemRepository {
           itemId: item.id,
         );
       }
+      writeStarted = true;
       final row = await client
           .from('items')
           .insert({
@@ -105,8 +110,17 @@ class ItemRepository {
       final saved = CollectionItem.fromJson(row);
       _merge(userId, [saved], {});
       return saved;
-    } catch (_) {
-      if (uploadedUrl != null) await _tryRemove(uploadedUrl);
+    } catch (error) {
+      // A transport failure may happen AFTER commit. Never delete a possibly
+      // referenced cover. Reconcile by ID before telling the user it failed.
+      final confirmed = writeStarted
+          ? await _confirm(item, userId, uploadedUrl)
+          : null;
+      if (confirmed != null) return confirmed;
+      if (uploadedUrl != null && error is PostgrestException) {
+        unawaited(_tryRemove(uploadedUrl));
+      }
+      _lists.invalidate(userId);
       rethrow;
     }
   }
@@ -148,6 +162,7 @@ class ItemRepository {
     final owner = _userId;
     final oldUrl = item.coverImage;
     String? uploadedUrl;
+    var writeStarted = false;
     try {
       if (newCover != null) {
         uploadedUrl = await images.upload(
@@ -157,6 +172,7 @@ class ItemRepository {
         );
       }
       final nextUrl = uploadedUrl ?? (removeCover ? null : oldUrl);
+      writeStarted = true;
       final row = await client
           .from('items')
           .update({...item.toUpdateJson(), 'cover_image': nextUrl})
@@ -164,21 +180,40 @@ class ItemRepository {
           .eq('user_id', owner)
           .select()
           .single();
-      if (oldUrl != null && oldUrl != nextUrl) await _tryRemove(oldUrl);
       final saved = CollectionItem.fromJson(row);
       _merge(owner, [saved], {});
+      if (oldUrl != null && oldUrl != nextUrl) unawaited(_tryRemove(oldUrl));
       return saved;
-    } catch (_) {
-      if (uploadedUrl != null) await _tryRemove(uploadedUrl);
+    } catch (error) {
+      final nextUrl = uploadedUrl ?? (removeCover ? null : oldUrl);
+      final confirmed = writeStarted
+          ? await _confirm(item, owner, nextUrl)
+          : null;
+      if (confirmed != null) {
+        if (oldUrl != null && oldUrl != nextUrl) unawaited(_tryRemove(oldUrl));
+        return confirmed;
+      }
+      if (uploadedUrl != null && error is PostgrestException) {
+        unawaited(_tryRemove(uploadedUrl));
+      }
+      _lists.invalidate(owner);
       rethrow;
     }
   }
 
   Future<void> delete(CollectionItem item) async {
     final owner = _userId;
-    await client.from('items').delete().eq('id', item.id).eq('user_id', owner);
+    final row = await client
+        .from('items')
+        .delete()
+        .eq('id', item.id)
+        .eq('user_id', owner)
+        .select('id,cover_image')
+        .maybeSingle();
+    if (row == null) throw StateError('未能确认删除，请刷新后检查收藏');
     _merge(owner, [], {item.id});
-    if (item.coverImage != null) await _tryRemove(item.coverImage!);
+    final cover = row['cover_image'] as String?;
+    if (cover != null) unawaited(_tryRemove(cover));
   }
 
   List<String> _bulkIds(List<String> ids) {
@@ -232,10 +267,40 @@ class ItemRepository {
         .toSet()
         .toList();
     // Keep storage cleanup concurrency bounded for larger selections.
+    unawaited(_cleanCovers(covers));
+    return deleted;
+  }
+
+  Future<void> _cleanCovers(List<String> covers) async {
     for (var i = 0; i < covers.length; i += 8) {
       await Future.wait(covers.skip(i).take(8).map(_tryRemove));
     }
-    return deleted;
+  }
+
+  Future<CollectionItem?> _confirm(
+    CollectionItem item,
+    String owner,
+    String? cover,
+  ) async {
+    try {
+      final row = await client
+          .from('items')
+          .select()
+          .eq('user_id', owner)
+          .eq('id', item.id)
+          .maybeSingle();
+      if (row == null) return null;
+      final expected = {...item.toUpdateJson(), 'cover_image': cover};
+      expected.remove('updated_at');
+      if (expected.entries.any((entry) => row[entry.key] != entry.value)) {
+        return null;
+      }
+      final saved = CollectionItem.fromJson(row);
+      _merge(owner, [saved], {});
+      return saved;
+    } catch (_) {
+      return null;
+    }
   }
 
   Future<void> _tryRemove(String url) async {

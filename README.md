@@ -2,9 +2,19 @@
 
 一个私人数字收藏 App。支持邮箱账号、云同步、封面、收藏管理、搜索筛选、统计和备份。
 
+2026-10-10：新增 **HarmonyOS 1.0.2(3)** 版本，目标为 Mate 80 Pro Max / HarmonyOS 6.1.0.135 / API 24。已完成 Release 编译、87 项自动化测试与官方模拟器验证。目标手机的设备签名和真机验收仍待完成，当前发布 HAP 未签名。
+
+- [给手机持有人的完整安装教程](docs/harmonyos-recipient-guide.md)：准备工具、取 UDID、USB 安装与验收。
+- [开发者异地签名教程](docs/harmonyos-developer-guide.md)：开发者账号、目标设备 Profile、源码构建与交付。
+- [下载 HAP 与安装工具 ZIP](https://github.com/lezebomb/Collect/releases/tag/harmony-v1.0.2-preview)，[鸿蒙验证记录](docs/harmonyos-verification.md)。
+
+生产服务器已限制为管理员指定的两个已验证邮箱，直接数据库、Storage 和搜索请求都执行限制；其他人下载或修改公开客户端也无法访问该项目数据。真实成员地址和签名材料不提交到 GitHub，详细状态见 [SECURITY.md](SECURITY.md)。
+
+此前的 Android 优化和微信接入代码保留在仓库；微信小程序当前暂缓。历史记录见 [手机更新记录](docs/phone-install-2026-10-08.md)、[微信接入说明](docs/wechat-and-private-access.md) 和 [小程序模块](miniprogram/README.md)。
+
 ## 技术结构
 
-- Flutter：Android 优先；包含 iOS 工程骨架。
+- Flutter：Android 与独立 HarmonyOS 适配层；包含 iOS 工程骨架。
 - Supabase Auth：邮箱密码登录，SDK 在设备上保持会话。
 - Supabase Postgres：`public.items`，每行绑定 `user_id` 并启用 RLS。
 - Supabase Storage：私有 `item-covers` bucket。数据库的 `cover_image` 保存稳定的 Storage 物品 URL；显示时按用户身份签发一小时的访问链接。
@@ -13,9 +23,9 @@
 
 ## 运行前准备
 
-1. 已创建专用 Supabase 项目 **Collect**（`lowwbbgyoqivzjmruzig`，`ap-southeast-1`），并应用了初始、`collection_features`、`remove_collection_status_and_rating`、`editable_initial_categories` 迁移。新环境先运行 `supabase/schema.sql`，再按顺序运行 `supabase/migrations/` 中的迁移。
-2. 在 Supabase Auth 中启用 Email provider。若开启邮箱确认，注册后先打开邮件确认，再回到 App 登录。密码恢复使用官方邮件流程；在 Auth 的 Redirect URLs 中加入 `collect://auth/recovery`，正式使用前配置自己的 SMTP 发件服务。
-3. 当前工作区的 `config/local.json` 已填入 Collect 项目 URL 和 **Publishable Key**。在新设备上，复制 `config/app_config.example.json` 为 `config/local.json` 并填入对应值。不要在移动端使用 Secret 或 `service_role` key。`config/local.json` 已加入 `.gitignore`。
+1. 使用自己的 Supabase 项目。新环境先运行 `supabase/schema.sql` 与基础功能迁移，再按 [SECURITY.md](SECURITY.md) 选择独立邮箱限制或高级配额协议。高级配额迁移未部署到当前生产；不要盲目执行全部迁移。
+2. 启用 Email provider，准备获准且邮箱已验证的账号；密码恢复使用官方邮件流程。Auth Redirect URLs 中加入 `collect://auth/recovery`。维护成员需要服务器管理员权限。
+3. 复制 `config/app_config.example.json` 为 `config/local.json`，填入项目 URL 和 **Publishable Key**。不要在移动端使用 Secret 或 `service_role` key；本地配置已忽略。当前独立邮箱方案使用 `COLLECTION_PRIVATE_ACCESS=false`、`COLLECTION_EMAIL_ALLOWLIST=true`、`COLLECTION_ALLOW_REGISTRATION=false`。
 4. 安装 Flutter SDK 和 Android SDK，运行：
 
    ```powershell
@@ -27,13 +37,13 @@
 
 项目尚未绑定 Supabase 时也能启动，但只会显示配置提示。
 
-资料搜索使用 `supabase/functions/catalog-search/index.ts` 中的轻量服务端函数调用 Tavily。部署该函数，并在 Supabase Edge Functions → Secrets 中设置 `TAVILY_API_KEY`；密钥不进入 Flutter 配置或代码仓库。函数在调用 Tavily 前向 Supabase Auth 验证用户身份。Tavily 使用 fast 搜索和图片候选，同一表单内相同关键词会缓存结果。未配置或暂时不可用时，其他图片来源仍可使用。
+资料搜索使用 `supabase/functions/catalog-search/index.ts` 调用 Tavily。在 Edge Functions Secrets 中设置 `TAVILY_API_KEY`，密钥不进入客户端或仓库。函数自行验证 bearer 用户并调用成员/限流 RPC，再访问 Tavily；当前部署由函数内部验 JWT。不要删除内部认证检查。同一表单内相同关键词会缓存结果；服务不可用时可用其他图片来源。
 
 图片预览与选中下载共用有大小上限的缓存，避免重复请求同一图片。部分图片站点可能限制访问或超时，失败的预览显示为损坏图片，可选择其他来源。拍照仅提取文字，不理解画面；可以勾选组成物品名称的多行文字再搜索，避免混入分级标志等包装文字，也可自行修改搜索关键词。
 
 ## 数据与图片权限
 
-`items` 的查询、插入、更新、删除策略均限定 `auth.uid() = user_id`。封面按 `<user_id>/<item_id>/<uuid>.<extension>` 存入私有 bucket，Storage 策略限制每个人只能读、上传和删除自己目录中的对象。客户端保存的是可长期引用的对象 URL，不保存会过期的签名链接。
+`items` 的查询、插入、更新、删除策略均限定 `auth.uid() = user_id`，并叠加服务端成员检查。设置和分类也执行这两层限制。封面按 `<user_id>/<item_id>/<uuid>.<extension>` 存入私有 bucket，Storage 同时检查所属账号与成员资格。客户端保存对象 URL，显示时获取会过期的签名链接。
 
 应用从不使用 `service_role` key。删除物品时先删数据库记录再清理封面；若 Storage 临时失败，可能留下孤立文件，可重试或在后台清理，但物品记录不会变成无法读取的坏数据。
 
@@ -62,6 +72,6 @@ flutter test
 flutter build apk --debug --dart-define-from-file=config/local.json
 ```
 
-本轮验证：分析无问题、21 项测试通过、指定配置的 Debug APK 构建成功。在 PLR110 真机上检查了 Tab 切换、图片直接复用、即时设置开关、默认分类删除、封面选择和搜索完整链路；连续五次 Tab 切换与本地搜索均记录到 0 个新 HTTP 请求。默认分类删除后原有两件游戏收藏保持不变，测试分类和设置已恢复。
+当前鸿蒙验证：分析无问题、87 项测试通过、API 24 Release HAP 编译和模拟器安装成功；系统存储/图片/文件接口结果及真机待测项见 [验证记录](docs/harmonyos-verification.md)。此前 Android 检查见历史记录。
 
-两列三行布局以 320×700、360×780、390×844 三种逻辑尺寸及六件内存测试收藏验证，未写入测试收藏到数据库。当前真机账号只有两件收藏；大量高清图片滚动、120 Hz 帧率和 55 分钟后的真实续签仍需持续观察，续签过期边界已通过自动测试。
+两列三行布局以 320×700、360×780、390×844 三种逻辑尺寸及六件内存测试收藏验证，未写入测试收藏到数据库。大量高清图片滚动、120 Hz 帧率和真实续签仍需目标设备观察，续签过期边界已通过自动测试。

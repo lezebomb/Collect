@@ -1,0 +1,9 @@
+<view class="page">
+  <view class="title">收藏统计</view><view class="error">{{error}}</view><view class="muted" wx:if="{{busy}}">正在读取统计…</view>
+  <view class="row"><picker range="{{categories}}" value="{{categoryIndex}}" data-key="categoryIndex" bindchange="filter"><view class="picker">{{categories[categoryIndex]}}</view></picker><picker range="{{years}}" value="{{yearIndex}}" data-key="yearIndex" bindchange="filter"><view class="picker">{{years[yearIndex]}}</view></picker></view>
+  <block wx:if="{{summary}}"><view class="panel"><view class="metric">{{summary.count}} 件</view><view class="metric">¥{{summary.total}}</view><view class="muted">使用收藏中保存的人民币折算额 · {{summary.unpriced}} 件未计价</view></view>
+    <view class="panel"><view class="label">分类数量</view><view class="row" wx:for="{{summary.groups}}" wx:key="name"><text>{{item.name}}</text><text>{{item.count}} 件</text></view></view>
+    <view class="panel"><view class="label">月度投入</view><view class="row" wx:for="{{summary.months}}" wx:key="name"><text>{{item.name}}</text><text>¥{{item.total}}</text></view></view>
+    <view class="panel"><view class="label">游戏状态</view><view class="row" wx:for="{{summary.games}}" wx:key="name"><text>{{item.name}}</text><text>{{item.count}} 件</text></view></view>
+  </block>
+</view>

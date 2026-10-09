@@ -1,0 +1,16 @@
+{
+  "string": [
+    {
+      "name": "module_desc",
+      "value": "私人数字收藏柜"
+    },
+    {
+      "name": "EntryAbility_desc",
+      "value": "Dearshelf 收藏管理"
+    },
+    {
+      "name": "EntryAbility_label",
+      "value": "Dearshelf"
+    }
+  ]
+}
